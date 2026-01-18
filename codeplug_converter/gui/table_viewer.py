@@ -1540,7 +1540,7 @@ class ChannelTableViewer:
             # Just show existing channels
             all_slots = existing_ids
         
-        # Add channels (and empty slots if filter enabled)
+        # Add channels (and empty slots if filter enabled and no search active)
         for ch_num in all_slots:
             ch_id = str(ch_num)
             
@@ -1576,8 +1576,8 @@ class ChannelTableViewer:
                     tags=(ch_id,)
                 )
             else:
-                # Empty slot - show placeholder (only when show_empty is on)
-                if not show_empty:
+                # Empty slot - show placeholder (only when show_empty is on AND no search active)
+                if not show_empty or search_text:
                     continue
                     
                 empty_values = ['(empty slot)'] + ['—'] * (len(self.selected_columns) - 1)
