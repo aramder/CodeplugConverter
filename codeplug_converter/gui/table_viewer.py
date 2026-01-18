@@ -17,6 +17,22 @@ from ..utils.validation import (
 )
 
 
+# Cohesive blue color palette for the GUI (MOTOTRBO CPS style)
+BLUE_PALETTE = {
+    'primary': '#0078D7',       # Primary blue - buttons, links (Windows blue)
+    'primary_dark': '#005A9E',  # Darker blue - pressed states
+    'header': '#00B0F0',        # Header cyan - section headers (MOTOTRBO style bright cyan)
+    'header_dark': '#0099CC',   # Slightly darker cyan for gradients
+    'hover': '#33CCFF',         # Hover cyan - button hover states (lighter cyan)
+    'light': '#E0F7FF',         # Light cyan - tooltip background, highlights
+    'lighter': '#F0FBFF',       # Very light cyan - subtle backgrounds
+    'accent': '#0099FF',        # Accent blue - focus indicators
+    'border': '#80D4FF',        # Border cyan - tooltip/popup borders
+    'link': '#0066CC',          # Link blue - navigation links
+    'selection': '#3399FF',     # Selection blue - selected items in lists
+}
+
+
 class ToolTip:
     """Create a tooltip for a given widget"""
     def __init__(self, widget, text):
@@ -38,7 +54,7 @@ class ToolTip:
         tw.wm_geometry(f"+{x}+{y}")
         
         label = tk.Label(tw, text=self.text, justify=tk.LEFT,
-                        background="#FFFFDD", foreground="#000000",
+                        background=BLUE_PALETTE['light'], foreground="#003366",
                         relief=tk.SOLID, borderwidth=1,
                         font=('Arial', 9), padx=5, pady=3)
         label.pack()
@@ -51,7 +67,10 @@ class ToolTip:
 
 
 class ChannelTableViewer:
-    """Professional radio programming interface with tree navigation and tabbed detail view"""
+    """Professional radio programming interface with tree navigation and tabbed detail view
+    
+    Branded as "Luminavolt PMR-171 CPS" (Customer Programming Software)
+    """
     
     MODE_NAMES = {
         0: "USB", 1: "LSB", 2: "CWR", 3: "CWL",
@@ -91,7 +110,7 @@ class ChannelTableViewer:
     # Combined CTCSS/DCS list for dropdowns: CTCSS tones, then D###N codes, then D###R codes
     CTCSS_DCS_COMBINED = ['Off'] + CTCSS_TONES + DCS_CODES
     
-    def __init__(self, channels: Dict[str, Dict], title: str = "Radio Programming Software"):
+    def __init__(self, channels: Dict[str, Dict], title: str = "Luminavolt PMR-171 CPS"):
         """Initialize professional viewer
         
         Args:
@@ -101,6 +120,7 @@ class ChannelTableViewer:
         """
         self.channels = channels
         self.title = title
+        self.current_file: Optional[Path] = None  # Track currently open file
         self.selected_channel: Optional[str] = None
         self.current_channel: Optional[str] = None  # Track current channel for updates
         self.root = None
@@ -131,11 +151,11 @@ class ChannelTableViewer:
         # Default selected columns (shown by default)
         self.selected_columns = ['name', 'rx_freq', 'mode']
         
-        # Style colors matching professional radio software
+        # Style colors matching professional radio software (using centralized palette)
         self.colors = {
-            'header_bg': '#0099CC',  # Professional blue
+            'header_bg': BLUE_PALETTE['header'],    # Professional blue header
             'header_fg': 'white',
-            'selected_bg': '#0066CC',
+            'selected_bg': BLUE_PALETTE['primary'],  # Primary blue for selection
             'tree_bg': '#F0F0F0'
         }
     
@@ -307,6 +327,15 @@ class ChannelTableViewer:
         self.root.title(self.title)
         self.root.geometry("1600x900")
         
+        # Start maximized (cross-platform)
+        try:
+            self.root.state('zoomed')  # Windows
+        except tk.TclError:
+            try:
+                self.root.attributes('-zoomed', True)  # Linux
+            except tk.TclError:
+                pass  # Fallback to default geometry if maximizing fails
+        
         # Set window icon
         icon_path = Path(__file__).parent.parent / 'assets' / 'LV_black.png'
         if icon_path.exists():
@@ -333,12 +362,19 @@ class ChannelTableViewer:
         style.configure('Toggle.TCheckbutton',
                        font=('Arial', 9))
         style.map('Toggle.TCheckbutton',
-                 indicatorcolor=[('selected', '#0066CC'), ('!selected', '#FFFFFF')],
+                 indicatorcolor=[('selected', BLUE_PALETTE['primary']), ('!selected', '#FFFFFF')],
                  indicatorrelief=[('selected', 'flat'), ('!selected', 'sunken')],
-                 background=[('active', '#E8E8E8')])
+                 background=[('active', BLUE_PALETTE['lighter'])])
         
-        # Configure notebook styling with subtle border
-        style.configure('TNotebook', borderwidth=1, relief='solid')
+        # Configure notebook styling with visible border
+        style.configure('TNotebook', borderwidth=2, relief='solid')
+        style.configure('TNotebook.Tab', padding=[8, 4])
+
+        # === CPS-STYLE TOOLBAR (Green buttons like MOTOTRBO CPS 2.0) ===
+        self._create_cps_toolbar()
+        
+        # === FILE IDENTIFIER LABEL (shows filename like CPS shows serial number) ===
+        self._create_file_identifier()
 
         main_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
         main_paned.pack(fill=tk.BOTH, expand=True)
@@ -359,6 +395,159 @@ class ChannelTableViewer:
         # Start GUI
         self.root.mainloop()
     
+    def _create_cps_toolbar(self):
+        """Create CPS-style toolbar with blue buttons (Luminavolt branding)"""
+        # Toolbar frame with gray background
+        toolbar_frame = tk.Frame(self.root, bg='#F0F0F0', height=80)
+        toolbar_frame.pack(fill=tk.X, side=tk.TOP)
+        toolbar_frame.pack_propagate(False)  # Fixed height
+        
+        # Inner frame with padding
+        inner_frame = tk.Frame(toolbar_frame, bg='#F0F0F0')
+        inner_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
+        
+        # Button style - blue background (Luminavolt branding) using centralized palette
+        button_bg = BLUE_PALETTE['primary']  # Professional blue
+        button_fg = 'white'
+        button_font = ('Arial', 9)
+        icon_font = ('Arial', 16)
+        btn_width = 75
+        btn_height = 60
+        
+        def create_cps_button(parent, icon_text, label_text, command, tooltip_text):
+            """Create a CPS-style button with icon and label, centered content"""
+            btn_frame = tk.Frame(parent, bg=button_bg, width=btn_width, height=btn_height,
+                               relief=tk.RAISED, bd=2)
+            btn_frame.pack(side=tk.LEFT, padx=3)
+            btn_frame.pack_propagate(False)
+            
+            # Center container to hold icon and label
+            center_frame = tk.Frame(btn_frame, bg=button_bg)
+            center_frame.place(relx=0.5, rely=0.5, anchor='center')
+            
+            # Icon label (centered)
+            icon_label = tk.Label(center_frame, text=icon_text, font=icon_font, 
+                                bg=button_bg, fg=button_fg)
+            icon_label.pack()
+            
+            # Text label (centered)
+            text_label = tk.Label(center_frame, text=label_text, font=button_font,
+                                bg=button_bg, fg=button_fg)
+            text_label.pack()
+            
+            # Store command reference on btn_frame for consistent access
+            btn_frame.command = command
+            
+            # Click handler that works on any part of the button
+            def on_click(event):
+                command()
+            
+            # Bind click events to all parts including btn_frame
+            btn_frame.bind('<Button-1>', on_click)
+            center_frame.bind('<Button-1>', on_click)
+            icon_label.bind('<Button-1>', on_click)
+            text_label.bind('<Button-1>', on_click)
+            
+            # Also bind to ButtonRelease for more reliable clicking
+            btn_frame.bind('<ButtonRelease-1>', lambda e: None)  # Prevent event propagation issues
+            
+            # Bind hover events to btn_frame and propagate to children
+            def on_enter(event):
+                self._on_cps_button_enter(btn_frame)
+            def on_leave(event):
+                self._on_cps_button_leave(btn_frame, button_bg)
+            
+            btn_frame.bind('<Enter>', on_enter)
+            btn_frame.bind('<Leave>', on_leave)
+            
+            # Add tooltip
+            ToolTip(btn_frame, tooltip_text)
+            
+            return btn_frame
+        
+        # File operations group
+        create_cps_button(inner_frame, "📂", "Open", self._open_file, "Open JSON file (Ctrl+O)")
+        create_cps_button(inner_frame, "💾", "Save", self._save_file, "Save JSON file (Ctrl+S)")
+        
+        # Separator
+        sep_frame = tk.Frame(inner_frame, width=2, bg='#CCCCCC')
+        sep_frame.pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=5)
+        
+        # Radio operations group (Read/Write - placeholder for UART programming)
+        # Icons: Radio with arrows showing data direction
+        # Read = data flows FROM radio (right arrow pointing out)
+        # Write = data flows TO radio (left arrow pointing in)
+        self.read_btn = create_cps_button(inner_frame, "📻➡", "Read", self._read_from_radio, 
+                                         "Read from radio (download codeplug) (Ctrl+R)")
+        self.write_btn = create_cps_button(inner_frame, "📻⬅", "Write", self._write_to_radio,
+                                          "Write to radio (upload codeplug) (Ctrl+W)")
+    
+    def _on_cps_button_enter(self, btn_frame):
+        """Handle mouse enter on CPS button (hover effect)"""
+        hover_color = BLUE_PALETTE['hover']  # Light blue on hover
+        btn_frame.config(bg=hover_color)
+        # Update all children recursively
+        def update_children(widget, color):
+            for child in widget.winfo_children():
+                try:
+                    child.config(bg=color)
+                except:
+                    pass
+                update_children(child, color)
+        update_children(btn_frame, hover_color)
+    
+    def _on_cps_button_leave(self, btn_frame, original_bg):
+        """Handle mouse leave on CPS button"""
+        btn_frame.config(bg=original_bg)
+        # Update all children recursively
+        def update_children(widget, color):
+            for child in widget.winfo_children():
+                try:
+                    child.config(bg=color)
+                except:
+                    pass
+                update_children(child, color)
+        update_children(btn_frame, original_bg)
+    
+    def _create_file_identifier(self):
+        """Update window title to show current file (no separate banner)"""
+        # File identifier is now shown in window title only
+        # Update title with filename if available
+        if self.current_file:
+            self.root.title(f"{self.title} - {self.current_file.name}")
+        else:
+            self.root.title(self.title)
+    
+    def _update_file_identifier(self, filepath: Path = None):
+        """Update the window title with current filename"""
+        self.current_file = filepath
+        if filepath:
+            self.root.title(f"{self.title} - {filepath.name}")
+        else:
+            self.root.title(self.title)
+    
+    def _read_from_radio(self):
+        """Placeholder for Read from Radio functionality (UART programming)"""
+        messagebox.showinfo(
+            "Read from Radio",
+            "UART programming not yet implemented.\n\n"
+            "This feature will allow reading the codeplug directly from the radio "
+            "via programming cable.\n\n"
+            "See TODO.md for implementation plan.",
+            parent=self.root
+        )
+    
+    def _write_to_radio(self):
+        """Placeholder for Write to Radio functionality (UART programming)"""
+        messagebox.showinfo(
+            "Write to Radio",
+            "UART programming not yet implemented.\n\n"
+            "This feature will allow writing the codeplug directly to the radio "
+            "via programming cable.\n\n"
+            "See TODO.md for implementation plan.",
+            parent=self.root
+        )
+
     def _create_tree_navigation(self, parent):
         """Create tree navigation panel (left side)"""
         # Header
@@ -478,7 +667,7 @@ class ChannelTableViewer:
             filter_frame,
             text="Show empty channels",
             variable=self.show_empty_channels,
-            command=self._on_filter_changed,
+            command=self._on_show_empty_changed,
             style='Toggle.TCheckbutton'
         )
         self.show_empty_check.pack(side=tk.LEFT, padx=2)
@@ -489,7 +678,7 @@ class ChannelTableViewer:
             filter_frame,
             text="Group by DMR",
             variable=self.group_by_type,
-            command=self._on_group_changed,
+            command=self._on_group_by_type_changed,
             style='Toggle.TCheckbutton'
         )
         self.group_by_type_check.pack(side=tk.LEFT, padx=8)
@@ -500,7 +689,7 @@ class ChannelTableViewer:
             filter_frame,
             text="Group by mode",
             variable=self.group_by_mode,
-            command=self._on_group_changed,
+            command=self._on_group_by_mode_changed,
             style='Toggle.TCheckbutton'
         )
         self.group_by_mode_check.pack(side=tk.LEFT, padx=8)
@@ -569,6 +758,7 @@ class ChannelTableViewer:
         file_menu.add_command(label="Open JSON...", command=self._open_file, accelerator="Ctrl+O")
         file_menu.add_command(label="Save JSON...", command=self._save_file, accelerator="Ctrl+S")
         file_menu.add_separator()
+        file_menu.add_command(label="Import from CSV...", command=self._import_from_csv)
         file_menu.add_command(label="Export to CSV...", command=self._export_to_csv)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
@@ -583,7 +773,13 @@ class ChannelTableViewer:
         edit_menu.add_command(label="Delete Selected Channels", command=self._bulk_delete, accelerator="Delete")
         edit_menu.add_command(label="Duplicate Selected Channels", command=self._bulk_duplicate, accelerator="Ctrl+D")
         
-        # View menu
+        # Program menu (Radio read/write operations)
+        program_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Program", menu=program_menu)
+        program_menu.add_command(label="Read from Radio...", command=self._read_from_radio, accelerator="Ctrl+R")
+        program_menu.add_command(label="Write to Radio...", command=self._write_to_radio, accelerator="Ctrl+W")
+        
+        # View menu (rightmost position)
         view_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="View", menu=view_menu)
         view_menu.add_command(label="Select Columns...", command=self._show_column_selector)
@@ -595,6 +791,8 @@ class ChannelTableViewer:
         self.root.bind('<Control-y>', lambda e: self._redo())
         self.root.bind('<Delete>', lambda e: self._bulk_delete())
         self.root.bind('<Control-d>', lambda e: self._bulk_duplicate())
+        self.root.bind('<Control-r>', lambda e: self._read_from_radio())
+        self.root.bind('<Control-w>', lambda e: self._write_to_radio())
         
         # Update undo/redo menu state
         self._update_undo_redo_menu()
@@ -722,12 +920,36 @@ class ChannelTableViewer:
         )
         if filename:
             try:
-                with open(filename, 'r') as f:
-                    self.channels = json.load(f)
-                self.root.destroy()
-                # Restart viewer with new data
-                viewer = ChannelTableViewer(self.channels, self.title)
-                viewer.show()
+                filepath = Path(filename)
+                with open(filepath, 'r') as f:
+                    data = json.load(f)
+                
+                # Handle new format with metadata
+                if 'channels' in data:
+                    channels = data['channels']
+                else:
+                    # Legacy format - entire file is channels dict
+                    channels = data
+                
+                # Update current instance instead of creating new one
+                self.channels = channels
+                self.current_file = filepath
+                
+                # Update file identifier and window title
+                self._update_file_identifier(filepath)
+                
+                # Clear undo/redo stacks for new file
+                self.undo_stack.clear()
+                self.redo_stack.clear()
+                self._update_undo_redo_menu()
+                
+                # Rebuild tree with new data
+                self.current_channel = None
+                self._rebuild_channel_tree()
+                
+                # Update status
+                self.status_label.config(text=f"Opened {filepath.name} | {len(self.channels)} channels")
+                
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to load file: {e}")
     
@@ -735,25 +957,34 @@ class ChannelTableViewer:
         """Save channel data to JSON file"""
         # Generate default filename with current date/time
         now = datetime.now()
-        default_filename = f"config_{now.strftime('%y%m%d_%H%M')}.json"
         
-        # Get repository root (CodeplugConverter directory)
-        repo_root = Path(__file__).parent.parent.parent
-        default_path = repo_root / default_filename
+        # Use current filename if we have one, otherwise generate new
+        if self.current_file:
+            default_filename = self.current_file.name
+            default_dir = str(self.current_file.parent)
+        else:
+            default_filename = f"config_{now.strftime('%y%m%d_%H%M')}.json"
+            # Get repository root (CodeplugConverter directory)
+            default_dir = str(Path(__file__).parent.parent.parent)
         
         filename = filedialog.asksaveasfilename(
             title="Save Channel Data",
-            initialdir=str(repo_root),
+            initialdir=default_dir,
             initialfile=default_filename,
             defaultextension=".json",
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
         )
         if filename:
             try:
-                with open(filename, 'w') as f:
+                filepath = Path(filename)
+                with open(filepath, 'w') as f:
                     json.dump(self.channels, f, indent=2)
+                
+                # Update file tracking
+                self._update_file_identifier(filepath)
+                
                 messagebox.showinfo("Success", "Channel data saved successfully!")
-                self.status_label.config(text=f"Saved to {Path(filename).name}")
+                self.status_label.config(text=f"Saved to {filepath.name}")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to save file: {e}")
     
@@ -892,6 +1123,328 @@ class ChannelTableViewer:
                 self.status_label.config(text=f"Exported to {Path(filename).name}")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to export CSV: {e}")
+    
+    def _import_from_csv(self):
+        """Import channel data from CSV file
+        
+        Supports flexible CSV format with column headers. Required columns:
+        - Channel (channel number)
+        - RX Frequency (MHz)
+        
+        Optional columns:
+        - Name, TX Frequency (MHz), Mode, Channel Type, RX CTCSS/DCS, TX CTCSS/DCS,
+          Power, DMR ID (Own), DMR ID (Call), DMR Slot, DMR Color Code (RX), DMR Color Code (TX)
+        """
+        # Get repository root (CodeplugConverter directory)
+        repo_root = Path(__file__).parent.parent.parent
+        
+        filename = filedialog.askopenfilename(
+            title="Import from CSV",
+            initialdir=str(repo_root),
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        if not filename:
+            return
+        
+        try:
+            imported_channels = {}
+            skipped_rows = []
+            
+            with open(filename, 'r', newline='', encoding='utf-8') as csvfile:
+                reader = csv.DictReader(csvfile)
+                
+                # Check for required columns
+                if not reader.fieldnames:
+                    messagebox.showerror("Error", "CSV file appears to be empty or invalid")
+                    return
+                
+                # Normalize field names (case-insensitive matching)
+                field_map = {f.lower().strip(): f for f in reader.fieldnames}
+                
+                # Find channel column (required)
+                ch_col = None
+                for possible in ['channel', 'ch', 'channel number', 'ch #', 'number']:
+                    if possible in field_map:
+                        ch_col = field_map[possible]
+                        break
+                
+                # Find RX frequency column (required)
+                rx_freq_col = None
+                for possible in ['rx frequency (mhz)', 'rx freq', 'rx frequency', 'receive frequency', 'frequency']:
+                    if possible in field_map:
+                        rx_freq_col = field_map[possible]
+                        break
+                
+                if not ch_col or not rx_freq_col:
+                    missing = []
+                    if not ch_col:
+                        missing.append("Channel")
+                    if not rx_freq_col:
+                        missing.append("RX Frequency")
+                    messagebox.showerror("Error", 
+                        f"CSV missing required columns: {', '.join(missing)}\n\n"
+                        f"Found columns: {', '.join(reader.fieldnames)}")
+                    return
+                
+                # Map optional columns
+                def find_col(possible_names):
+                    for name in possible_names:
+                        if name.lower() in field_map:
+                            return field_map[name.lower()]
+                    return None
+                
+                name_col = find_col(['name', 'channel name'])
+                tx_freq_col = find_col(['tx frequency (mhz)', 'tx freq', 'tx frequency', 'transmit frequency'])
+                mode_col = find_col(['mode', 'modulation'])
+                type_col = find_col(['channel type', 'type', 'ch type'])
+                rx_ctcss_col = find_col(['rx ctcss/dcs', 'rx ctcss', 'rx tone', 'receive tone'])
+                tx_ctcss_col = find_col(['tx ctcss/dcs', 'tx ctcss', 'tx tone', 'transmit tone'])
+                power_col = find_col(['power', 'tx power', 'power level'])
+                own_id_col = find_col(['dmr id (own)', 'own id', 'radio id', 'dmr id'])
+                call_id_col = find_col(['dmr id (call)', 'call id', 'talkgroup', 'contact'])
+                slot_col = find_col(['dmr slot', 'slot', 'timeslot', 'ts'])
+                rx_cc_col = find_col(['dmr color code (rx)', 'rx cc', 'rx color code', 'color code'])
+                tx_cc_col = find_col(['dmr color code (tx)', 'tx cc', 'tx color code'])
+                
+                row_num = 1  # For error reporting (header is row 0)
+                for row in reader:
+                    row_num += 1
+                    
+                    try:
+                        # Get channel number
+                        ch_num_str = row.get(ch_col, '').strip()
+                        if not ch_num_str:
+                            skipped_rows.append(f"Row {row_num}: Missing channel number")
+                            continue
+                        
+                        try:
+                            ch_num = int(ch_num_str)
+                        except ValueError:
+                            skipped_rows.append(f"Row {row_num}: Invalid channel number '{ch_num_str}'")
+                            continue
+                        
+                        # Get RX frequency
+                        rx_freq_str = row.get(rx_freq_col, '').strip()
+                        if not rx_freq_str:
+                            skipped_rows.append(f"Row {row_num}: Missing RX frequency")
+                            continue
+                        
+                        try:
+                            rx_freq_mhz = float(rx_freq_str)
+                        except ValueError:
+                            skipped_rows.append(f"Row {row_num}: Invalid RX frequency '{rx_freq_str}'")
+                            continue
+                        
+                        # Create channel from default template
+                        channel = self._create_default_channel()
+                        channel['channelLow'] = ch_num
+                        channel['channelHigh'] = 0
+                        
+                        # Set RX frequency
+                        from ..utils.frequency import frequency_to_bytes
+                        f1, f2, f3, f4 = frequency_to_bytes(rx_freq_mhz)
+                        channel['vfoaFrequency1'] = f1
+                        channel['vfoaFrequency2'] = f2
+                        channel['vfoaFrequency3'] = f3
+                        channel['vfoaFrequency4'] = f4
+                        
+                        # Set TX frequency (default to RX if not specified)
+                        tx_freq_str = row.get(tx_freq_col, '').strip() if tx_freq_col else ''
+                        if tx_freq_str:
+                            try:
+                                tx_freq_mhz = float(tx_freq_str)
+                                f1, f2, f3, f4 = frequency_to_bytes(tx_freq_mhz)
+                            except ValueError:
+                                pass  # Keep RX frequency values
+                        channel['vfobFrequency1'] = f1
+                        channel['vfobFrequency2'] = f2
+                        channel['vfobFrequency3'] = f3
+                        channel['vfobFrequency4'] = f4
+                        
+                        # Set channel name
+                        name = row.get(name_col, '').strip() if name_col else ''
+                        if not name:
+                            name = f'CH {ch_num}'
+                        channel['channelName'] = name[:16].ljust(16, '\u0000')
+                        
+                        # Set mode
+                        if mode_col:
+                            mode_str = row.get(mode_col, '').strip().upper()
+                            mode_map = {v.upper(): k for k, v in self.MODE_NAMES.items() if v != '?'}
+                            channel['vfoaMode'] = mode_map.get(mode_str, 6)  # Default NFM
+                            channel['vfobMode'] = channel['vfoaMode']
+                        
+                        # Set channel type
+                        if type_col:
+                            type_str = row.get(type_col, '').strip().lower()
+                            if type_str in ['dmr', 'digital', '1']:
+                                channel['chType'] = 1
+                            else:
+                                channel['chType'] = 0
+                        else:
+                            # Auto-detect from mode
+                            channel['chType'] = 1 if channel['vfoaMode'] == 9 else 0
+                        
+                        # Set RX CTCSS/DCS
+                        if rx_ctcss_col:
+                            rx_ctcss_str = row.get(rx_ctcss_col, '').strip()
+                            channel['rxCtcss'] = self._parse_ctcss_dcs(rx_ctcss_str)
+                        
+                        # Set TX CTCSS/DCS
+                        if tx_ctcss_col:
+                            tx_ctcss_str = row.get(tx_ctcss_col, '').strip()
+                            channel['txCtcss'] = self._parse_ctcss_dcs(tx_ctcss_str)
+                        else:
+                            channel['txCtcss'] = channel['rxCtcss']  # Default to RX
+                        
+                        # Set power level
+                        if power_col:
+                            power_str = row.get(power_col, '').strip().lower()
+                            power_map = {v.lower(): k for k, v in self.POWER_LEVELS.items()}
+                            channel['power'] = power_map.get(power_str, 0)
+                        
+                        # Set DMR settings
+                        if own_id_col:
+                            own_id_str = row.get(own_id_col, '').strip()
+                            if own_id_str and own_id_str != '-':
+                                try:
+                                    own_id = int(own_id_str)
+                                    channel['ownId1'] = (own_id >> 24) & 0xFF
+                                    channel['ownId2'] = (own_id >> 16) & 0xFF
+                                    channel['ownId3'] = (own_id >> 8) & 0xFF
+                                    channel['ownId4'] = own_id & 0xFF
+                                except ValueError:
+                                    pass
+                        
+                        if call_id_col:
+                            call_id_str = row.get(call_id_col, '').strip()
+                            if call_id_str and call_id_str != '-':
+                                try:
+                                    call_id = int(call_id_str)
+                                    channel['callId1'] = (call_id >> 24) & 0xFF
+                                    channel['callId2'] = (call_id >> 16) & 0xFF
+                                    channel['callId3'] = (call_id >> 8) & 0xFF
+                                    channel['callId4'] = call_id & 0xFF
+                                except ValueError:
+                                    pass
+                        
+                        if slot_col:
+                            slot_str = row.get(slot_col, '').strip()
+                            if slot_str and slot_str not in ['N/A', '-', '']:
+                                try:
+                                    slot = int(slot_str)
+                                    channel['slot'] = max(1, min(2, slot))
+                                except ValueError:
+                                    pass
+                        
+                        if rx_cc_col:
+                            rx_cc_str = row.get(rx_cc_col, '').strip()
+                            if rx_cc_str and rx_cc_str not in ['N/A', '-', '']:
+                                try:
+                                    channel['rxCc'] = max(0, min(15, int(rx_cc_str)))
+                                except ValueError:
+                                    pass
+                        
+                        if tx_cc_col:
+                            tx_cc_str = row.get(tx_cc_col, '').strip()
+                            if tx_cc_str and tx_cc_str not in ['N/A', '-', '']:
+                                try:
+                                    channel['txCc'] = max(0, min(15, int(tx_cc_str)))
+                                except ValueError:
+                                    pass
+                        else:
+                            channel['txCc'] = channel.get('rxCc', 1)  # Default TX CC to RX CC
+                        
+                        # Add channel to import dict
+                        imported_channels[str(ch_num)] = channel
+                        
+                    except Exception as e:
+                        skipped_rows.append(f"Row {row_num}: Error - {str(e)}")
+            
+            if not imported_channels:
+                messagebox.showerror("Error", 
+                    f"No valid channels found in CSV.\n\n"
+                    f"Skipped rows:\n" + "\n".join(skipped_rows[:10]))
+                return
+            
+            # Ask user how to handle import
+            existing_count = len(self.channels)
+            import_count = len(imported_channels)
+            
+            if existing_count > 0:
+                result = messagebox.askyesnocancel(
+                    "Import Options",
+                    f"Found {import_count} channels to import.\n\n"
+                    f"You have {existing_count} existing channels.\n\n"
+                    "Yes = Replace all (clear existing and import)\n"
+                    "No = Merge (add/update channels from CSV)\n"
+                    "Cancel = Abort import",
+                    parent=self.root
+                )
+                
+                if result is None:  # Cancel
+                    return
+                elif result:  # Yes - Replace
+                    self._save_state("Import CSV (replace)")
+                    self.channels = imported_channels
+                else:  # No - Merge
+                    self._save_state("Import CSV (merge)")
+                    self.channels.update(imported_channels)
+            else:
+                # No existing channels, just import
+                self._save_state("Import CSV")
+                self.channels = imported_channels
+            
+            # Rebuild tree
+            self.current_channel = None
+            self._rebuild_channel_tree()
+            
+            # Show results
+            msg = f"Imported {import_count} channels from CSV"
+            if skipped_rows:
+                msg += f"\n\nSkipped {len(skipped_rows)} rows"
+                if len(skipped_rows) <= 5:
+                    msg += ":\n" + "\n".join(skipped_rows)
+            
+            messagebox.showinfo("Import Complete", msg)
+            self.status_label.config(text=f"Imported {import_count} channels | Total: {len(self.channels)}")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to import CSV: {e}")
+    
+    def _parse_ctcss_dcs(self, value_str: str) -> int:
+        """Parse CTCSS/DCS string to internal integer value
+        
+        Args:
+            value_str: String like "Off", "100.0", "D023N", etc.
+            
+        Returns:
+            Integer value for storage (0=Off, 670-2503=CTCSS, DCS codes)
+        """
+        if not value_str or value_str.lower() in ['off', '0', '-', 'none', 'n/a']:
+            return 0
+        
+        # Try to parse as CTCSS tone (float Hz value)
+        try:
+            tone_hz = float(value_str)
+            if 67.0 <= tone_hz <= 250.3:
+                # Convert Hz to internal format (multiply by 10)
+                return int(tone_hz * 10)
+        except ValueError:
+            pass
+        
+        # Try to parse as DCS code (D###N or D###R format)
+        value_upper = value_str.upper().strip()
+        if value_upper.startswith('D') and len(value_upper) == 5:
+            try:
+                code = int(value_upper[1:4])
+                # DCS codes are stored differently - return raw for now
+                # This is a simplified implementation
+                return code
+            except ValueError:
+                pass
+        
+        return 0
     
     def _populate_channel_tree(self):
         """Populate the channel tree"""
@@ -1106,7 +1659,7 @@ class ChannelTableViewer:
         
         # Notebook for tabs
         self.detail_notebook = ttk.Notebook(parent)
-        self.detail_notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.detail_notebook.pack(fill=tk.BOTH, expand=True)
         
         # Tab 1: General Settings
         self.general_tab = ttk.Frame(self.detail_notebook)
@@ -1193,8 +1746,8 @@ class ChannelTableViewer:
         for widget in self.general_tab.winfo_children():
             widget.destroy()
         
-        # Create scrollable frame
-        canvas = tk.Canvas(self.general_tab, bg='#F5F5F5', highlightthickness=0)
+        # Create scrollable frame - use lighter background to match ttk.Frame
+        canvas = tk.Canvas(self.general_tab, bg='#E8E8E8', highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.general_tab, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
         
@@ -1213,7 +1766,7 @@ class ChannelTableViewer:
         ttk.Label(scrollable_frame, text="Channel Number:", font=('Arial', 9, 'bold')).grid(
             row=row, column=0, sticky=tk.W, padx=10, pady=5)
         ch_num_label = ttk.Label(scrollable_frame, text=str(ch_data['channelLow']), 
-                                 font=('Arial', 9), foreground='#0066CC')
+                                 font=('Arial', 9), foreground=BLUE_PALETTE['primary'])
         ch_num_label.grid(row=row, column=1, sticky=tk.W, padx=10, pady=5)
         
         row += 1
@@ -1303,8 +1856,8 @@ class ChannelTableViewer:
         # Check if this is a DMR channel
         is_dmr = ch_data.get('chType', 0) == 1
         
-        # Create scrollable frame with matching background
-        canvas = tk.Canvas(self.freq_tab, bg='#F5F5F5', highlightthickness=0)
+        # Create scrollable frame - use lighter background to match ttk.Frame
+        canvas = tk.Canvas(self.freq_tab, bg='#E8E8E8', highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.freq_tab, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
         
@@ -1442,7 +1995,7 @@ class ChannelTableViewer:
         
         offset_var = tk.StringVar(value=f"{offset:+.6f} MHz")
         offset_label = ttk.Label(tools_frame, textvariable=offset_var, 
-                                font=('Arial', 11, 'bold'), foreground='#0066CC')
+                                font=('Arial', 11, 'bold'), foreground=BLUE_PALETTE['primary'])
         offset_label.grid(row=tools_row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
         tools_row += 1
         
@@ -1498,7 +2051,7 @@ class ChannelTableViewer:
         except (ValueError, IndexError):
             suggested_offset = 0.0
         
-        custom_offset_var = tk.StringVar(value=f"{suggested_offset:.1f}")
+        custom_offset_var = tk.StringVar(value=f"{suggested_offset:+.1f}")
         custom_offset_entry = ttk.Entry(tools_frame, textvariable=custom_offset_var, 
                                        width=15, font=('Arial', 10))
         custom_offset_entry.grid(row=tools_row, column=0, columnspan=2, sticky=tk.EW, padx=5, pady=2)
@@ -1510,7 +2063,7 @@ class ChannelTableViewer:
         tools_row += 1
         
         def set_offset(value):
-            custom_offset_var.set(f"{value:.1f}")
+            custom_offset_var.set(f"{value:+.1f}")
         
         ttk.Button(preset_frame, text="+5.0", command=lambda: set_offset(5.0), width=6).grid(
             row=0, column=0, padx=2, pady=2)
@@ -1573,8 +2126,8 @@ class ChannelTableViewer:
         for widget in self.dmr_tab.winfo_children():
             widget.destroy()
         
-        # Create scrollable frame with matching background
-        canvas = tk.Canvas(self.dmr_tab, bg='#F5F5F5', highlightthickness=0)
+        # Create scrollable frame - use lighter background to match ttk.Frame
+        canvas = tk.Canvas(self.dmr_tab, bg='#E8E8E8', highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.dmr_tab, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
         
@@ -1722,8 +2275,8 @@ class ChannelTableViewer:
         for widget in self.advanced_tab.winfo_children():
             widget.destroy()
         
-        # Create scrollable frame with matching background
-        canvas = tk.Canvas(self.advanced_tab, bg='#F5F5F5', highlightthickness=0)
+        # Create scrollable frame - use lighter background to match ttk.Frame
+        canvas = tk.Canvas(self.advanced_tab, bg='#E8E8E8', highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.advanced_tab, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
         
@@ -1825,8 +2378,8 @@ class ChannelTableViewer:
         for widget in self.raw_tab.winfo_children():
             widget.destroy()
         
-        # Create frame with matching background
-        frame = tk.Frame(self.raw_tab, bg='#F5F5F5')
+        # Create frame - use lighter background to match ttk.Frame
+        frame = tk.Frame(self.raw_tab, bg='#E8E8E8')
         frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         scrollbar = ttk.Scrollbar(frame)
@@ -2460,23 +3013,28 @@ class ChannelTableViewer:
         # Update current_channel to follow the moved channel
         self.current_channel = new_id
     
-    def _on_filter_changed(self):
-        """Handle filter checkbox changes - rebuild tree with filters applied"""
+    def _on_show_empty_changed(self):
+        """Handle 'Show empty channels' checkbox - disable other filters"""
+        if self.show_empty_channels.get():
+            # Uncheck other filters
+            self.group_by_type.set(False)
+            self.group_by_mode.set(False)
         self._rebuild_channel_tree(reselect_channel_id=self.current_channel)
     
-    def _on_group_changed(self):
-        """Handle grouping checkbox changes - ensure mutual exclusivity and rebuild tree"""
-        # Make group_by_type and group_by_mode mutually exclusive
-        # When one is checked, uncheck the other
-        if self.group_by_type.get() and self.group_by_mode.get():
-            # The one that was just clicked should stay checked, uncheck the other
-            # We detect which was clicked by checking the focus
-            focused = self.root.focus_get()
-            if focused == self.group_by_type_check:
-                self.group_by_mode.set(False)
-            else:
-                self.group_by_type.set(False)
-        
+    def _on_group_by_type_changed(self):
+        """Handle 'Group by DMR' checkbox - disable other filters"""
+        if self.group_by_type.get():
+            # Uncheck other filters
+            self.show_empty_channels.set(False)
+            self.group_by_mode.set(False)
+        self._rebuild_channel_tree(reselect_channel_id=self.current_channel)
+    
+    def _on_group_by_mode_changed(self):
+        """Handle 'Group by mode' checkbox - disable other filters"""
+        if self.group_by_mode.get():
+            # Uncheck other filters
+            self.show_empty_channels.set(False)
+            self.group_by_type.set(False)
         self._rebuild_channel_tree(reselect_channel_id=self.current_channel)
     
     def _on_search_changed(self):
@@ -2562,7 +3120,8 @@ def view_channel_file(json_path: Path, title: str = None):
         channels = data
     
     if title is None:
-        title = f"Channel Viewer - {json_path.name}"
+        title = "Luminavolt PMR-171 CPS"
     
     viewer = ChannelTableViewer(channels, title)
+    viewer.current_file = json_path  # Set the file path for the banner display
     viewer.show()
