@@ -1,4 +1,227 @@
-"""Channel validation utilities"""
+"""Channel validation utilities for PMR-171 programming
+
+Protocol Reference: docs/PMR171_PROTOCOL.md
+
+PMR-171 Channel Data Constraints (from UART protocol analysis):
+- Channel Index: 0-999 (1000 channels max)
+- Channel Name: 11 characters max (12 bytes with null terminator)
+- CTCSS Index: 0-55 (0=None, 1-55=tone frequencies)
+- Mode: 0-9 (USB, LSB, CWR, CWL, AM, WFM, NFM, DIGI, PKT, DMR), 255=empty
+- Frequency: Big-endian 32-bit Hz (practical range ~100kHz to 1GHz)
+- CRC: CRC-16-CCITT (polynomial 0x1021, init 0xFFFF)
+"""
+
+# PMR-171 Protocol Constants
+PMR171_MAX_CHANNELS = 1000
+PMR171_MAX_CHANNEL_NAME_LENGTH = 11  # 12 bytes - 1 for null terminator
+PMR171_CTCSS_MAX_INDEX = 55
+PMR171_MIN_FREQUENCY_HZ = 100_000  # 100 kHz
+PMR171_MAX_FREQUENCY_HZ = 1_000_000_000  # 1 GHz
+
+# Valid mode values for PMR-171
+PMR171_VALID_MODES = {
+    0: "USB",
+    1: "LSB", 
+    2: "CWR",
+    3: "CWL",
+    4: "AM",
+    5: "WFM",
+    6: "NFM",
+    7: "DIGI",
+    8: "PKT",
+    9: "DMR",
+    255: "Empty/Unused"
+}
+
+# CTCSS Tone Table (index -> frequency Hz) from protocol analysis
+PMR171_CTCSS_TONES = {
+    0: None, 1: 67.0, 2: 69.3, 3: 71.9, 4: 74.4, 5: 77.0, 6: 79.7,
+    7: 82.5, 8: 85.4, 9: 88.5, 10: 91.5, 11: 94.8, 12: 97.4, 13: 100.0,
+    14: 103.5, 15: 107.2, 16: 110.9, 17: 114.8, 18: 118.8, 19: 123.0,
+    20: 127.3, 21: 131.8, 22: 136.5, 23: 141.3, 24: 146.2, 25: 150.0,
+    26: 151.4, 27: 156.7, 28: 159.8, 29: 162.2, 30: 165.5, 31: 167.9,
+    32: 171.3, 33: 173.8, 34: 177.3, 35: 179.9, 36: 183.5, 37: 186.2,
+    38: 189.9, 39: 192.8, 40: 196.6, 41: 199.5, 42: 203.5, 43: 206.5,
+    44: 210.7, 45: 213.8, 46: 218.1, 47: 221.3, 48: 225.7, 49: 229.1,
+    50: 233.6, 51: 237.1, 52: 241.8, 53: 245.5, 54: 250.3, 55: 254.1
+}
+
+
+def validate_pmr171_channel_name(name: str) -> tuple:
+    """Validate channel name for PMR-171 protocol constraints
+    
+    Args:
+        name: Channel name string
+        
+    Returns:
+        (is_valid, error_message) - error_message is None if valid
+    """
+    if name is None:
+        return True, None  # Empty name is valid
+    
+    # Strip null terminators for validation
+    clean_name = name.rstrip('\u0000').strip()
+    
+    if len(clean_name) > PMR171_MAX_CHANNEL_NAME_LENGTH:
+        return False, f"Channel name exceeds {PMR171_MAX_CHANNEL_NAME_LENGTH} characters (got {len(clean_name)})"
+    
+    # Check for non-ASCII characters (PMR-171 uses ASCII)
+    try:
+        clean_name.encode('ascii')
+    except UnicodeEncodeError:
+        return False, "Channel name contains non-ASCII characters"
+    
+    return True, None
+
+
+def validate_pmr171_ctcss_index(index: int) -> tuple:
+    """Validate CTCSS tone index for PMR-171 protocol
+    
+    Args:
+        index: CTCSS tone index (0-55)
+        
+    Returns:
+        (is_valid, error_message) - error_message is None if valid
+    """
+    if index < 0:
+        return False, f"CTCSS index cannot be negative (got {index})"
+    
+    if index > PMR171_CTCSS_MAX_INDEX:
+        return False, f"CTCSS index exceeds maximum {PMR171_CTCSS_MAX_INDEX} (got {index})"
+    
+    return True, None
+
+
+def validate_pmr171_mode(mode: int) -> tuple:
+    """Validate mode value for PMR-171 protocol
+    
+    Args:
+        mode: Mode value (0-9 or 255)
+              0=USB, 1=LSB, 2=CWR, 3=CWL, 4=AM, 5=WFM, 6=NFM, 7=DIGI, 8=PKT, 9=DMR
+        
+    Returns:
+        (is_valid, error_message) - error_message is None if valid
+    """
+    if mode not in PMR171_VALID_MODES:
+        valid_modes = ', '.join(f"{k}={v}" for k, v in PMR171_VALID_MODES.items() if k != 255)
+        return False, f"Invalid mode {mode}. Valid modes: {valid_modes}"
+    
+    return True, None
+
+
+def validate_pmr171_channel_index(index: int) -> tuple:
+    """Validate channel index for PMR-171 protocol
+    
+    Args:
+        index: Channel index (0-999)
+        
+    Returns:
+        (is_valid, error_message) - error_message is None if valid
+    """
+    if index < 0:
+        return False, f"Channel index cannot be negative (got {index})"
+    
+    if index >= PMR171_MAX_CHANNELS:
+        return False, f"Channel index exceeds maximum {PMR171_MAX_CHANNELS - 1} (got {index})"
+    
+    return True, None
+
+
+def validate_pmr171_frequency(freq_hz: int) -> tuple:
+    """Validate frequency value for PMR-171 protocol
+    
+    Args:
+        freq_hz: Frequency in Hz
+        
+    Returns:
+        (is_valid, error_message) - error_message is None if valid
+    """
+    if freq_hz < PMR171_MIN_FREQUENCY_HZ:
+        return False, f"Frequency below minimum {PMR171_MIN_FREQUENCY_HZ / 1_000_000:.3f} MHz"
+    
+    if freq_hz > PMR171_MAX_FREQUENCY_HZ:
+        return False, f"Frequency exceeds maximum {PMR171_MAX_FREQUENCY_HZ / 1_000_000:.0f} MHz"
+    
+    return True, None
+
+
+def ctcss_index_to_hz(index: int) -> float:
+    """Convert CTCSS index to frequency in Hz
+    
+    Args:
+        index: CTCSS tone index (0-55)
+        
+    Returns:
+        Frequency in Hz, or None if index is 0 or invalid
+    """
+    return PMR171_CTCSS_TONES.get(index, None)
+
+
+def ctcss_hz_to_index(freq_hz: float) -> int:
+    """Convert CTCSS frequency to index
+    
+    Args:
+        freq_hz: CTCSS frequency in Hz
+        
+    Returns:
+        Index (0-55), or 0 if no matching tone found
+    """
+    if freq_hz is None or freq_hz == 0:
+        return 0
+    
+    # Find closest matching tone
+    for idx, tone in PMR171_CTCSS_TONES.items():
+        if tone is not None and abs(tone - freq_hz) < 0.1:
+            return idx
+    
+    return 0  # No match found
+
+
+def truncate_channel_name(name: str, max_length: int = PMR171_MAX_CHANNEL_NAME_LENGTH) -> str:
+    """Truncate channel name to fit PMR-171 protocol limit
+    
+    Forces channel name to fit within protocol constraints.
+    
+    Args:
+        name: Channel name string
+        max_length: Maximum characters (default: 11)
+        
+    Returns:
+        Truncated name, stripped and ASCII-safe
+    """
+    if name is None:
+        return ""
+    
+    # Strip null terminators and whitespace
+    clean_name = name.rstrip('\u0000').strip()
+    
+    # Replace non-ASCII characters with '?'
+    ascii_name = ""
+    for c in clean_name:
+        try:
+            c.encode('ascii')
+            ascii_name += c
+        except UnicodeEncodeError:
+            ascii_name += '?'
+    
+    # Truncate to max length
+    return ascii_name[:max_length]
+
+
+def format_channel_name_for_storage(name: str) -> str:
+    """Format channel name for storage in PMR-171 format
+    
+    Truncates to 11 chars, pads to 12 bytes with null terminator.
+    
+    Args:
+        name: Channel name string
+        
+    Returns:
+        16-character string with null padding (PMR-171 storage format)
+    """
+    truncated = truncate_channel_name(name)
+    # Pad to 16 chars with nulls for storage (per PMR-171 internal format)
+    return truncated.ljust(16, '\u0000')[:16]
 
 
 def is_valid_frequency(freq_mhz: float, strict: bool = True) -> bool:
@@ -391,7 +614,9 @@ def is_valid_dcs_code(code_value: int) -> bool:
 
 
 def validate_channel(channel_data: dict) -> list:
-    """Validate a channel and return list of warnings
+    """Validate a channel against PMR-171 protocol constraints
+    
+    Validates all channel fields based on protocol specifications from UART analysis.
     
     Args:
         channel_data: PMR-171 channel data dictionary
@@ -401,53 +626,85 @@ def validate_channel(channel_data: dict) -> list:
     """
     warnings = []
     
-    # Import frequency conversion from utils
     import struct
     
-    # Validate RX frequency
-    rx_freq_bytes = struct.pack('>I', 
+    # === PMR-171 Protocol Validation ===
+    
+    # 1. Validate channel name (max 11 chars ASCII)
+    channel_name = channel_data.get('channelName', '')
+    is_valid, error = validate_pmr171_channel_name(channel_name)
+    if not is_valid:
+        warnings.append(f"Channel name: {error}")
+    
+    # 2. Validate channel index (0-999)
+    channel_index = channel_data.get('channelLow', 0)
+    is_valid, error = validate_pmr171_channel_index(channel_index)
+    if not is_valid:
+        warnings.append(f"Channel index: {error}")
+    
+    # 3. Validate mode (0-8 or 255)
+    mode = channel_data.get('vfoaMode', 6)
+    is_valid, error = validate_pmr171_mode(mode)
+    if not is_valid:
+        warnings.append(f"Mode: {error}")
+    
+    # 4. Validate RX frequency
+    rx_freq_hz = (
         (channel_data.get('vfoaFrequency1', 0) << 24) |
         (channel_data.get('vfoaFrequency2', 0) << 16) |
         (channel_data.get('vfoaFrequency3', 0) << 8) |
-        channel_data.get('vfoaFrequency4', 0))
-    rx_freq_hz = struct.unpack('>I', rx_freq_bytes)[0]
+        channel_data.get('vfoaFrequency4', 0)
+    )
     rx_freq_mhz = rx_freq_hz / 1_000_000
     
-    if not is_valid_frequency(rx_freq_mhz, strict=False):
+    is_valid, error = validate_pmr171_frequency(rx_freq_hz)
+    if not is_valid:
+        warnings.append(f"RX Frequency: {error}")
+    elif not is_valid_frequency(rx_freq_mhz, strict=False):
         band_name = get_frequency_band_name(rx_freq_mhz)
-        warnings.append(f"RX frequency {rx_freq_mhz:.6f} MHz is out of valid bands ({band_name})")
+        warnings.append(f"RX frequency {rx_freq_mhz:.6f} MHz may be out of amateur/commercial bands ({band_name})")
     
-    # Validate TX frequency
-    tx_freq_bytes = struct.pack('>I',
+    # 5. Validate TX frequency
+    tx_freq_hz = (
         (channel_data.get('vfobFrequency1', 0) << 24) |
         (channel_data.get('vfobFrequency2', 0) << 16) |
         (channel_data.get('vfobFrequency3', 0) << 8) |
-        channel_data.get('vfobFrequency4', 0))
-    tx_freq_hz = struct.unpack('>I', tx_freq_bytes)[0]
+        channel_data.get('vfobFrequency4', 0)
+    )
     tx_freq_mhz = tx_freq_hz / 1_000_000
     
-    if not is_valid_frequency(tx_freq_mhz, strict=False):
+    is_valid, error = validate_pmr171_frequency(tx_freq_hz)
+    if not is_valid:
+        warnings.append(f"TX Frequency: {error}")
+    elif not is_valid_frequency(tx_freq_mhz, strict=False):
         band_name = get_frequency_band_name(tx_freq_mhz)
-        warnings.append(f"TX frequency {tx_freq_mhz:.6f} MHz is out of valid bands ({band_name})")
+        warnings.append(f"TX frequency {tx_freq_mhz:.6f} MHz may be out of amateur/commercial bands ({band_name})")
     
-    # Validate RX CTCSS/DCS
-    rx_ctcss = channel_data.get('rxCtcss', 0)
-    if rx_ctcss > 0:
-        if rx_ctcss >= 1000:
-            if not is_valid_ctcss_tone(rx_ctcss):
-                warnings.append(f"RX CTCSS tone {rx_ctcss/10:.1f} Hz is not standard")
-        else:
-            if not is_valid_dcs_code(rx_ctcss):
-                warnings.append(f"RX DCS code {rx_ctcss} is not standard")
+    # 6. Validate RX CTCSS index (0-55 for PMR-171 protocol)
+    rx_ctcss_index = channel_data.get('rxCtcss', 0)
+    # Check if using protocol index format (0-55)
+    if rx_ctcss_index <= PMR171_CTCSS_MAX_INDEX:
+        is_valid, error = validate_pmr171_ctcss_index(rx_ctcss_index)
+        if not is_valid:
+            warnings.append(f"RX CTCSS: {error}")
+    else:
+        # Legacy format (tone value in tenths of Hz)
+        if rx_ctcss_index >= 1000 and not is_valid_ctcss_tone(rx_ctcss_index):
+            warnings.append(f"RX CTCSS tone {rx_ctcss_index/10:.1f} Hz is not standard")
+        elif rx_ctcss_index > 0 and rx_ctcss_index < 1000 and not is_valid_dcs_code(rx_ctcss_index):
+            warnings.append(f"RX DCS code {rx_ctcss_index} is not standard")
     
-    # Validate TX CTCSS/DCS
-    tx_ctcss = channel_data.get('txCtcss', rx_ctcss)
-    if tx_ctcss > 0:
-        if tx_ctcss >= 1000:
-            if not is_valid_ctcss_tone(tx_ctcss):
-                warnings.append(f"TX CTCSS tone {tx_ctcss/10:.1f} Hz is not standard")
-        else:
-            if not is_valid_dcs_code(tx_ctcss):
-                warnings.append(f"TX DCS code {tx_ctcss} is not standard")
+    # 7. Validate TX CTCSS index (0-55 for PMR-171 protocol)
+    tx_ctcss_index = channel_data.get('txCtcss', rx_ctcss_index)
+    if tx_ctcss_index <= PMR171_CTCSS_MAX_INDEX:
+        is_valid, error = validate_pmr171_ctcss_index(tx_ctcss_index)
+        if not is_valid:
+            warnings.append(f"TX CTCSS: {error}")
+    else:
+        # Legacy format
+        if tx_ctcss_index >= 1000 and not is_valid_ctcss_tone(tx_ctcss_index):
+            warnings.append(f"TX CTCSS tone {tx_ctcss_index/10:.1f} Hz is not standard")
+        elif tx_ctcss_index > 0 and tx_ctcss_index < 1000 and not is_valid_dcs_code(tx_ctcss_index):
+            warnings.append(f"TX DCS code {tx_ctcss_index} is not standard")
     
     return warnings

@@ -33,10 +33,24 @@ The CodeplugConverter now features a professional radio programming interface mo
 ## Key Features
 
 ### 1. Tree Navigation Panel (Left Side)
-- **Organized Channel List**: Channels grouped by type (Analog/DMR)
+- **Organized Channel List**: Channels grouped by type (Analog/DMR) or by modulation mode
 - **Tree Structure**: Expandable/collapsible groups
 - **Quick Search**: Filter channels by name or frequency
 - **At-a-Glance Info**: Shows channel number, name, RX frequency, and mode
+
+#### Filter Options
+The tree panel includes a filter bar with the following options:
+
+| Filter | Description |
+|--------|-------------|
+| **Show empty channels** | Toggle to show/hide channels with no programmed data (Mode 255) |
+| **Group by DMR** | Groups channels into "Analog Channels" and "DMR Channels" sections |
+| **Group by mode** | Groups channels by modulation mode (USB, LSB, NFM, AM, DMR, etc.) |
+
+**Notes:**
+- "Group by DMR" and "Group by mode" are mutually exclusive - enabling one disables the other
+- All filters work in combination with the search box
+- Groups are automatically expanded when selected
 
 ### 2. Tabbed Detail View (Right Side)
 

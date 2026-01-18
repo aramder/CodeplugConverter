@@ -6,20 +6,29 @@ A Python tool for converting various radio configuration formats to Guohetec PMR
 
 - **Multiple Format Support**: 
   - ✅ CHIRP .img binary files (Baofeng UV-5R, UV-82, UV-32, etc.)
+  - ✅ CSV import/export
   - 🚧 Anytone .rdt files (planned)
   - 🚧 Motorola .ctb/.xctb files (planned)
-  - 🚧 CSV import/export (planned)
 
 - **Smart Channel Management**:
   - Automatic duplicate detection and removal
   - Multi-file merging with sequential renumbering
   - Frequency validation (VHF/UHF amateur bands)
   - CHIRP metadata filtering
+  - Bulk channel operations (multi-select, delete, duplicate)
 
 - **GUI Tools**:
-  - Interactive channel table viewer
+  - Interactive channel table viewer with professional styling
   - Double-click for detailed channel information
-  - Scrollable, sortable interface
+  - Scrollable, sortable interface with column selection
+  - Live editing with undo/redo support
+  - Motorola ASTRO 25-inspired design
+
+- **CTCSS/DCS Tone Support**:
+  - ✅ Complete CTCSS mapping (all 50 standard tones validated)
+  - Split tone support (different TX/RX)
+  - TX-only and RX-only configurations
+  - 🚧 DCS code support (planned)
 
 - **Data Quality**:
   - Strict frequency validation
@@ -237,7 +246,7 @@ MIT License - see LICENSE file for details
 
 - CHIRP format documentation: https://chirp.danplanet.com/
 - PMR-171 specifications: Reverse engineered
-- Developed by: Aram Dermenjyan
+- Developed by: Aram Dergevorkian
 
 ## Support
 

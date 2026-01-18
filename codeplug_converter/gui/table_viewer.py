@@ -10,7 +10,11 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
-from ..utils.validation import validate_channel, get_frequency_band_name
+from ..utils.validation import (
+    validate_channel, get_frequency_band_name, 
+    truncate_channel_name, format_channel_name_for_storage,
+    PMR171_MAX_CHANNEL_NAME_LENGTH
+)
 
 
 class ToolTip:
@@ -110,7 +114,8 @@ class ChannelTableViewer:
         
         # Filter settings (initialized in show() after root window created)
         self.show_empty_channels = None
-        self.group_by_type = None  # Separate Analog/DMR into groups
+        self.group_by_type = None  # Separate Analog/DMR into groups (legacy name for compatibility)
+        self.group_by_mode = None  # Group channels by modulation mode (NFM, AM, DMR, etc.)
         self.search_var = None  # Search filter text
         
         # Available columns for tree view (ordered as desired)
@@ -453,7 +458,7 @@ class ChannelTableViewer:
         self.columns_btn.pack(side=tk.LEFT)
         ToolTip(self.columns_btn, "Select columns to display in the channel list")
         
-        # Filter bar
+        # Filter bar (checkboxes)
         filter_frame = ttk.Frame(parent, padding=2)
         filter_frame.pack(fill=tk.X, padx=5, pady=2)
         
@@ -466,6 +471,9 @@ class ChannelTableViewer:
         if not hasattr(self, 'group_by_type') or self.group_by_type is None:
             self.group_by_type = tk.BooleanVar(value=False)  # Default: no grouping
         
+        if not hasattr(self, 'group_by_mode') or self.group_by_mode is None:
+            self.group_by_mode = tk.BooleanVar(value=False)  # Default: no grouping by mode
+        
         self.show_empty_check = ttk.Checkbutton(
             filter_frame,
             text="Show empty channels",
@@ -476,16 +484,27 @@ class ChannelTableViewer:
         self.show_empty_check.pack(side=tk.LEFT, padx=2)
         ToolTip(self.show_empty_check, "Show gaps in memory assignment (empty channel slots)")
         
-        # Group by type checkbox
+        # Group by DMR (Analog/Digital type) checkbox
         self.group_by_type_check = ttk.Checkbutton(
             filter_frame,
-            text="Group by type",
+            text="Group by DMR",
             variable=self.group_by_type,
-            command=self._on_filter_changed,
+            command=self._on_group_changed,
             style='Toggle.TCheckbutton'
         )
         self.group_by_type_check.pack(side=tk.LEFT, padx=8)
-        ToolTip(self.group_by_type_check, "Separate channels into Analog and DMR groups")
+        ToolTip(self.group_by_type_check, "Separate channels into Analog and Digital (DMR) groups")
+        
+        # Group by Mode checkbox
+        self.group_by_mode_check = ttk.Checkbutton(
+            filter_frame,
+            text="Group by mode",
+            variable=self.group_by_mode,
+            command=self._on_group_changed,
+            style='Toggle.TCheckbutton'
+        )
+        self.group_by_mode_check.pack(side=tk.LEFT, padx=8)
+        ToolTip(self.group_by_mode_check, "Group channels by modulation mode (NFM, AM, DMR, USB, etc.)")
         
         # Search box
         search_frame = ttk.Frame(parent)
@@ -925,17 +944,35 @@ class ChannelTableViewer:
         # Check filter options
         show_empty = hasattr(self, 'show_empty_channels') and self.show_empty_channels and self.show_empty_channels.get()
         group_by_type = hasattr(self, 'group_by_type') and self.group_by_type and self.group_by_type.get()
+        group_by_mode = hasattr(self, 'group_by_mode') and self.group_by_mode and self.group_by_mode.get()
         search_text = self.search_var.get().lower().strip() if hasattr(self, 'search_var') and self.search_var else ''
         
         # Configure tag for empty channels (grayed out)
         self.channel_tree.tag_configure('empty', foreground='#999999', background='#F5F5F5')
         
-        # Create group nodes only if grouping is enabled
+        # Create group nodes based on grouping options
+        # Note: group_by_type (DMR) and group_by_mode are mutually exclusive (enforced in _on_group_changed)
         analog_node = None
         dmr_node = None
+        mode_nodes = {}  # Dict of mode_name -> tree node
+        
         if group_by_type:
+            # Group by Analog vs Digital (DMR)
             analog_node = self.channel_tree.insert('', 'end', text='Analog Channels', open=True)
             dmr_node = self.channel_tree.insert('', 'end', text='DMR Channels', open=True)
+        elif group_by_mode:
+            # Group by modulation mode - create nodes dynamically based on data
+            # First pass: collect all modes present in the data
+            modes_present = set()
+            for ch_id in self.channels:
+                ch_data = self.channels[ch_id]
+                mode = self.MODE_NAMES.get(ch_data.get('vfoaMode', 6), 'NFM')
+                modes_present.add(mode)
+            
+            # Create nodes in a logical order (based on MODE_NAMES order)
+            mode_order = [v for k, v in sorted(self.MODE_NAMES.items()) if v != '?' and v in modes_present]
+            for mode in mode_order:
+                mode_nodes[mode] = self.channel_tree.insert('', 'end', text=f'{mode} Channels', open=True)
         
         item_to_select = None
         
@@ -973,6 +1010,9 @@ class ChannelTableViewer:
                 # Determine parent based on grouping option
                 if group_by_type:
                     parent_node = dmr_node if ch_data.get('chType', 0) == 1 else analog_node
+                elif group_by_mode:
+                    ch_mode = self.MODE_NAMES.get(ch_data.get('vfoaMode', 6), 'NFM')
+                    parent_node = mode_nodes.get(ch_mode, '')
                 else:
                     parent_node = ''  # Root level when not grouping
                 
@@ -1032,6 +1072,8 @@ class ChannelTableViewer:
                     visible_count += len(self.channel_tree.get_children(group))
             
             empty_count = len(all_slots) - len(existing_ids) if show_empty else 0
+            
+            # Build status message
             if search_text:
                 self.status_label.config(text=f"Search: '{search_text}' | Showing {visible_count} channels")
             elif show_empty and empty_count > 0:
@@ -1206,42 +1248,6 @@ class ChannelTableViewer:
         mode_combo.bind('<<ComboboxSelected>>', lambda e: self._update_field('vfoaMode', 
             {v: k for k, v in self.MODE_NAMES.items()}[mode_combo.get()]))
         mode_combo.grid(row=row, column=1, sticky=tk.W, padx=10, pady=5)
-        row += 1
-        
-        # Squelch Mode
-        ttk.Label(scrollable_frame, text="Squelch Mode:", font=('Arial', 9, 'bold')).grid(
-            row=row, column=0, sticky=tk.W, padx=10, pady=5)
-        squelch_mode = self.SQUELCH_MODES.get(ch_data.get('vfoaSquelchMode', 0), 'Unknown')
-        squelch_combo = ttk.Combobox(scrollable_frame, values=list(self.SQUELCH_MODES.values()),
-                                    state='readonly', width=27)
-        squelch_combo.set(squelch_mode)
-        squelch_combo.bind('<<ComboboxSelected>>', lambda e: self._update_field('vfoaSquelchMode', 
-            {v: k for k, v in self.SQUELCH_MODES.items()}[squelch_combo.get()]))
-        squelch_combo.grid(row=row, column=1, sticky=tk.W, padx=10, pady=5)
-        row += 1
-        
-        # Power Level
-        ttk.Label(scrollable_frame, text="Power Level:", font=('Arial', 9, 'bold')).grid(
-            row=row, column=0, sticky=tk.W, padx=10, pady=5)
-        power = self.POWER_LEVELS.get(ch_data.get('vfoaPower', 0), 'Unknown')
-        power_combo = ttk.Combobox(scrollable_frame, values=list(self.POWER_LEVELS.values()),
-                                  state='readonly', width=27)
-        power_combo.set(power)
-        power_combo.bind('<<ComboboxSelected>>', lambda e: self._update_field('vfoaPower', 
-            {v: k for k, v in self.POWER_LEVELS.items()}[power_combo.get()]))
-        power_combo.grid(row=row, column=1, sticky=tk.W, padx=10, pady=5)
-        row += 1
-        
-        # Bandwidth
-        ttk.Label(scrollable_frame, text="Bandwidth:", font=('Arial', 9, 'bold')).grid(
-            row=row, column=0, sticky=tk.W, padx=10, pady=5)
-        bw = "Narrow (12.5kHz)" if ch_data.get('vfoaBandwidth', 0) == 0 else "Wide (25kHz)"
-        bw_combo = ttk.Combobox(scrollable_frame, values=["Narrow (12.5kHz)", "Wide (25kHz)"],
-                               state='readonly', width=27)
-        bw_combo.set(bw)
-        bw_combo.bind('<<ComboboxSelected>>', lambda e: self._update_field('vfoaBandwidth', 
-            0 if bw_combo.get() == "Narrow (12.5kHz)" else 1))
-        bw_combo.grid(row=row, column=1, sticky=tk.W, padx=10, pady=5)
         row += 1
         
         # Add separator
@@ -2103,14 +2109,27 @@ class ChannelTableViewer:
             self.detail_notebook.select(current_tab + 1)
     
     def _on_channel_name_changed(self):
-        """Handle channel name changes (called on each keystroke)"""
+        """Handle channel name changes (called on each keystroke)
+        
+        Forces truncation to 11 characters per PMR-171 protocol.
+        """
         if self.current_channel and self.current_channel in self.channels:
-            new_name = self.current_channel_name.get()
-            # Update channel data
-            self.channels[self.current_channel]['channelName'] = new_name.ljust(16, '\u0000')[:16]
+            raw_name = self.current_channel_name.get()
+            
+            # Force truncation to protocol limit (11 chars)
+            truncated_name = truncate_channel_name(raw_name)
+            
+            # Update channel data with properly formatted name
+            self.channels[self.current_channel]['channelName'] = format_channel_name_for_storage(truncated_name)
+            
             # Update header
-            display_name = new_name.strip() or "(empty)"
+            display_name = truncated_name.strip() or "(empty)"
             self.detail_header.config(text=f"Channel {self.current_channel} - {display_name}")
+            
+            # If name was truncated, update the entry field to show truncated version
+            if raw_name != truncated_name and len(raw_name) > PMR171_MAX_CHANNEL_NAME_LENGTH:
+                # Set the truncated name in the entry (will trigger this again but won't loop)
+                self.current_channel_name.set(truncated_name)
     
     def _on_channel_name_focus_out(self):
         """Handle when channel name entry loses focus - rebuild tree and save state"""
@@ -2444,18 +2463,21 @@ class ChannelTableViewer:
     def _on_filter_changed(self):
         """Handle filter checkbox changes - rebuild tree with filters applied"""
         self._rebuild_channel_tree(reselect_channel_id=self.current_channel)
+    
+    def _on_group_changed(self):
+        """Handle grouping checkbox changes - ensure mutual exclusivity and rebuild tree"""
+        # Make group_by_type and group_by_mode mutually exclusive
+        # When one is checked, uncheck the other
+        if self.group_by_type.get() and self.group_by_mode.get():
+            # The one that was just clicked should stay checked, uncheck the other
+            # We detect which was clicked by checking the focus
+            focused = self.root.focus_get()
+            if focused == self.group_by_type_check:
+                self.group_by_mode.set(False)
+            else:
+                self.group_by_type.set(False)
         
-        # Update status to reflect filter state
-        filter_status = []
-        if self.show_empty_channels.get():
-            filter_status.append("showing empty slots")
-        if hasattr(self, 'group_by_type') and self.group_by_type.get():
-            filter_status.append("grouped by type")
-        
-        if filter_status:
-            self.status_label.config(text=f"Filter: {', '.join(filter_status)} | Total: {len(self.channels)}")
-        else:
-            self.status_label.config(text=f"Total Channels: {len(self.channels)} | Ready")
+        self._rebuild_channel_tree(reselect_channel_id=self.current_channel)
     
     def _on_search_changed(self):
         """Handle search text changes - filter tree in real-time"""

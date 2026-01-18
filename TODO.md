@@ -6,6 +6,30 @@ This document tracks planned features, enhancements, and known issues for the Co
 
 ## High Priority
 
+### CTCSS Tone Encoding - ✅ COMPLETE AND VALIDATED
+- [x] **Discovered correct fields**: Testing revealed emitYayin/receiveYayin are the correct fields (Jan 2026)
+  - Test 07: rxCtcss/txCtcss fields are IGNORED by radio (always reset to 255)
+  - Test 08: emitYayin/receiveYayin values PRESERVED, confirming correct implementation
+- [x] **Complete CTCSS mapping table**: ✅ ALL 50 standard tones mapped (Tests 05-10, Jan 2026)
+  - All CTCSS tones from 67.0 Hz to 254.1 Hz successfully mapped
+  - Non-linear yayin encoding discovered (values 1-55 with gaps)
+  - Complete lookup tables in `codeplug_converter/writers/pmr171_writer.py`
+- [x] **Validation**: ✅ Test 11 confirmed 100% accuracy (Jan 18, 2026)
+  - 25 test channels verified (common, edge, split, TX-only, RX-only, no-tone)
+  - All emitYayin and receiveYayin values match perfectly
+  - Split tones, TX-only, RX-only all confirmed functional
+- **Status**: ✅ **VALIDATED AND PRODUCTION READY**
+- **Documentation**: See `docs/COMPLETE_CTCSS_MAPPING.md` and `D:/Radio/Guohetec/Testing/11_VALIDATION_RESULTS.md`
+
+### DCS (Digital Coded Squelch) Encoding - PENDING
+- [ ] **Build DCS mapping table**: Research required - 104+ codes to map (Est: 6-8 hours)
+  - Configure each DCS code in manufacturer software (D023N, D023I, etc.)
+  - Download from radio and record emitYayin/receiveYayin values
+  - Build complete DCS code → yayin mapping table
+  - Add DCS support to _tone_to_yayin()
+- **Note**: DCS codes likely use yayin values 100+ based on reserved gaps in CTCSS range
+- **Impact**: MEDIUM - CTCSS covers most amateur radio use cases; DCS needed for some repeaters
+
 ### JSON Format Validation & Factory Software Compatibility
 - [x] **Comprehensive test suite**: 24 tests validating PMR-171 JSON format compatibility (Jan 2026)
 - [x] **Cross-validate with factory software output**: ✅ VALIDATED - See docs/FACTORY_JSON_COMPARISON.md (Jan 2026)
@@ -25,6 +49,72 @@ This document tracks planned features, enhancements, and known issues for the Co
 
 ### Core Functionality
 - [x] **Dual frequency architecture**: PMR-171 requires TWO frequencies per memory channel (VFO A and VFO B), but CHIRP only provides one. **Solution**: When importing from single-frequency sources (CHIRP), program the same frequency into both VFO A and VFO B (simplex operation). No intermediate format needed. (Jan 2026)
+
+- [ ] **UART Serial Transaction Analysis**: Analyze captured programming data to reverse engineer the PMR-171 UART protocol
+  - [x] **Captured data available**: UART transaction logs stored in `tests/test_configs/Results/`
+    - `07_readback_uart_monitor.spm` - Eltima Serial Monitor capture of Test 07 readback
+    - `07_upload_uart_monitor.spm` - Upload operation for Test 07
+    - `08_upload_uart_monitor.spm` - Upload operation for Test 08
+    - `09_tone_pattern_test_manual_full_update_readback.spm` - Manual update readback
+    - `09_upload_uart_monitor.spm` - Upload operation for Test 09
+    - `10_complete_ctcss_mapping_test_readback.spm` - Test 10 readback
+    - `11_complete_ctcss_validation_readback.spm` - Test 11 validation readback
+    - `11_complete_ctcss_validation_readback_uploade.spm` - Test 11 upload (LARGEST - full transaction log)
+  - [ ] **Phase 1: Extract and analyze capture format**
+    - [ ] Parse Eltima .spm binary format to understand structure
+    - [ ] Extract raw COM6 transaction data (TX/RX bytes with timestamps)
+    - [ ] Convert to hex dumps for analysis (create analysis scripts in tests/test_configs/Results/)
+    - [ ] Generate human-readable transcripts showing data flow
+  - [ ] **Phase 2: Initial pattern recognition**
+    - [ ] Compare 11_complete_ctcss_validation_readback_uploade.spm (upload) vs 11_complete_ctcss_validation_readback.spm (readback)
+    - [ ] Identify repeating byte patterns (command headers, packet delimiters)
+    - [ ] Look for ASCII strings (model name, version info)
+    - [ ] Find correlation between known channel data and transmitted bytes
+    - [ ] Map out transaction sequence (init → commands → data → verify)
+  - [ ] **Phase 3: Decode packet structure**
+    - [ ] Identify packet boundaries (start bytes, length fields, end bytes)
+    - [ ] Extract suspected command codes from packet headers
+    - [ ] Correlate CTCSS tone values (67.0Hz=0x01, 123.0Hz=0x03, etc.) with transmitted bytes
+    - [ ] Find memory addresses or channel selectors
+    - [ ] Identify data payload sections
+  - [ ] **Phase 4: Checksum/CRC analysis**
+    - [ ] Extract suspected checksum bytes from end of packets
+    - [ ] Test common algorithms: CRC-16-CCITT, CRC-16-XMODEM, CRC-32, simple sum, XOR
+    - [ ] Use online CRC calculators to test hypotheses
+    - [ ] Implement validated checksum in Python
+  - [ ] **Phase 5: Build protocol decoder**
+    - [ ] Create `analyze_uart_capture.py` script in tests/test_configs/Results/
+    - [ ] Parse .spm files and extract raw bytes
+    - [ ] Implement packet parser based on discovered structure
+    - [ ] Annotate packets with decoded information (command type, address, data, checksum)
+    - [ ] Generate protocol documentation with examples
+  - [ ] **Catalog capture files**: Document what each capture represents (already partially done via filenames)
+    - [ ] Determine which are full codeplug operations vs partial updates
+    - [ ] Identify read vs write transactions
+  - [ ] **Identify communication parameters**:
+    - [ ] Determine baud rate from capture timing
+    - [ ] Identify data bits, parity, stop bits
+    - [ ] Check for flow control signals
+  - [ ] **Analyze packet structure**:
+    - [ ] Identify packet start/sync patterns (header bytes)
+    - [ ] Map command codes (read, write, verify, identify, etc.)
+    - [ ] Determine address/memory location format
+    - [ ] Analyze data payload structure
+    - [ ] Identify checksum/CRC algorithm and location
+    - [ ] Find packet terminator/footer bytes
+  - [ ] **Document command sequences**:
+    - [ ] Map initialization/handshake sequence
+    - [ ] Document radio identification request/response
+    - [ ] Analyze full codeplug read sequence
+    - [ ] Analyze full codeplug write sequence
+    - [ ] Document verification commands
+  - [ ] **Reverse engineer checksums**:
+    - [ ] Extract checksum bytes from multiple packets
+    - [ ] Test common algorithms (CRC-16, CRC-32, XOR, simple sum)
+    - [ ] Identify CRC polynomial and parameters if applicable
+    - [ ] Implement checksum calculation in Python
+  - [ ] **Create protocol specification document**: Document findings in `docs/PMR171_UART_PROTOCOL.md`
+  - [ ] **Build packet examples**: Create annotated hex dumps showing packet structure
 
 - [ ] **Direct PMR-171 programming via UART**: Implement direct radio programming without needing manufacturer software
   - Research UART command protocol (check PMR-171 manual for documentation)
@@ -356,6 +446,42 @@ This allows:
 
 ## Session History
 
+### January 18, 2026 (Afternoon Session)
+- **Focus**: GUI filter improvements and DMR mode validation
+- **Accomplishments**:
+  - Added "Group by DMR" filter (separates Analog/Digital channels)
+  - Added "Group by mode" filter (groups by USB, LSB, NFM, AM, DMR, etc.)
+  - Made filter options mutually exclusive for clean UX
+  - Fixed DMR mode validation error - added Mode 9 (DMR) to valid modes
+  - Updated all documentation with DMR mode findings
+- **Key Findings**:
+  - Mode 9 = DMR was added in firmware update (not in original FCC v1.5 documentation)
+  - SAMPLE_CHANNELS.json contains 8 DMR channels using mode 9
+  - DMR channels have additional fields: chType, callId, ownId, rxCc, txCc, slot
+- **Documentation Updated**:
+  - `docs/PMR171_PROTOCOL.md` - Added Mode 9 (DMR) and DMR channel configuration section
+  - `GUI_FEATURES.md` - Added filter options documentation
+  - `codeplug_converter/utils/validation.py` - Added Mode 9 to valid modes
+
+### January 18, 2026 (Test 11 Validation Session)
+- **Focus**: CTCSS mapping validation and test result verification
+- **Accomplishments**:
+  - Verified Test 11 CTCSS validation results from radio readback
+  - Created automated verification script (`11_VERIFICATION_RESULTS.py`)
+  - Confirmed 100% accuracy on all 25 test channels
+  - Documented complete validation results (`11_VALIDATION_RESULTS.md`)
+  - Updated all documentation to reflect VALIDATED status
+- **Key Findings**:
+  - All emitYayin and receiveYayin values match perfectly (25/25 channels)
+  - Split tones, TX-only, RX-only all confirmed functional
+  - Channel name truncation at 12 chars is cosmetic only
+  - CTCSS mapping is production-ready
+- **Status**: CTCSS implementation marked as ✅ VALIDATED AND PRODUCTION READY
+- **Next Steps**:
+  - Begin DCS code mapping (104+ codes)
+  - Implement CHIRP to PMR171 conversion using validated mapping
+  - Continue with UART programming research
+
 ### January 17-18, 2026 (Evening Session)
 - **Focus**: JSON format validation and UART programming planning
 - **Accomplishments**:
@@ -399,6 +525,14 @@ This allows:
 - [x] Channel validation with visual warnings for out-of-band frequencies and invalid tones (Jan 2026)
 - [x] Bulk channel operations with multi-select, right-click context menu, delete and duplicate (Jan 2026)
 - [x] Comprehensive PMR-171 JSON format validation tests - 24 tests verifying compatibility with factory programming software (Jan 2026)
+- [x] **GUI Filter Options** - "Group by DMR" and "Group by mode" with mutually exclusive selection (Jan 18, 2026)
+- [x] **DMR Mode Validation** - Added Mode 9 (DMR) to valid modes in validation.py (Jan 18, 2026)
+- [x] **CTCSS Tone Encoding - Complete mapping and validation** (Jan 18, 2026)
+  - Discovered correct emitYayin/receiveYayin fields (Tests 07-08)
+  - Mapped all 50 standard CTCSS tones (Tests 05-10)
+  - Validated with 25 test channels - 100% accuracy (Test 11)
+  - Split tones, TX-only, RX-only all confirmed functional
+  - Production ready with complete lookup tables
 
 ---
 

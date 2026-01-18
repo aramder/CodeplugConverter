@@ -8,12 +8,12 @@ long_description = readme_file.read_text(encoding='utf-8') if readme_file.exists
 setup(
     name="codeplug-converter",
     version="0.1.0",
-    author="Aram Dermenjyan",
+    author="Aram Dergevorkian",
     author_email="",
     description="Convert radio configuration files to various formats",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/CodeplugConverter",  # Update with actual URL
+    url="https://github.com/aramder/CodeplugConverter",  # Update with actual URL
     packages=find_packages(),
     classifiers=[
         "Development Status :: 3 - Alpha",

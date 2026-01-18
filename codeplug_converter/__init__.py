@@ -5,7 +5,7 @@ and other formats.
 """
 
 __version__ = "0.1.0"
-__author__ = "Aram Dermenjyan"
+__author__ = "Aram Dergevorkian"
 
 from .parsers import ChirpParser, BaseParser
 from .writers import PMR171Writer
