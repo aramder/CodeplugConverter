@@ -331,6 +331,9 @@ class ChannelTableViewer:
                  indicatorcolor=[('selected', '#0066CC'), ('!selected', '#FFFFFF')],
                  indicatorrelief=[('selected', 'flat'), ('!selected', 'sunken')],
                  background=[('active', '#E8E8E8')])
+        
+        # Configure notebook styling with subtle border
+        style.configure('TNotebook', borderwidth=1, relief='solid')
 
         main_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
         main_paned.pack(fill=tk.BOTH, expand=True)
@@ -1006,6 +1009,8 @@ class ChannelTableViewer:
             self.channel_tree.selection_set(item_to_select)
             self.channel_tree.focus(item_to_select)
             self.channel_tree.see(item_to_select)
+            # Trigger selection event to ensure tabs are populated
+            self.channel_tree.event_generate('<<TreeviewSelect>>')
         elif not self.current_channel:
             # Auto-select first channel on initial load
             first_channel = self._get_first_channel_item()
@@ -1036,11 +1041,15 @@ class ChannelTableViewer:
     
     def _get_first_channel_item(self):
         """Get the first channel item in the tree (skip group nodes)"""
-        # Check Analog Channels group first
-        for group_node in self.channel_tree.get_children():
-            children = self.channel_tree.get_children(group_node)
+        # Get all top-level items
+        for item in self.channel_tree.get_children():
+            # Check if this item has tags (is a channel, not a group)
+            if self.channel_tree.item(item, 'tags'):
+                return item
+            # If no tags, it's a group node - check its children
+            children = self.channel_tree.get_children(item)
             if children:
-                # Return first child that has tags (is a channel, not a group)
+                # Return first child that has tags (is a channel)
                 for child in children:
                     if self.channel_tree.item(child, 'tags'):
                         return child
@@ -1087,15 +1096,26 @@ class ChannelTableViewer:
     
     def _create_status_bar(self):
         """Create status bar at bottom"""
-        status_frame = ttk.Frame(self.root)
-        status_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(2, 0))
+        # Create a visible border line above status bar using a Frame with background color
+        border_frame = tk.Frame(self.root, height=2, bg='#AAAAAA')
+        border_frame.pack(side=tk.BOTTOM, fill=tk.X)
         
-        self.status_label = ttk.Label(
+        # Status bar frame with light background
+        status_frame = tk.Frame(self.root, bg='#F0F0F0', relief=tk.FLAT)
+        status_frame.pack(side=tk.BOTTOM, fill=tk.X)
+        
+        # Status label with better padding to avoid border overlap
+        self.status_label = tk.Label(
             status_frame,
             text=f"Total Channels: {len(self.channels)} | Ready",
-            padding=(5, 2)
+            bg='#F0F0F0',
+            fg='#000000',
+            font=('Arial', 9),
+            padx=10,
+            pady=5,
+            anchor='w'
         )
-        self.status_label.pack(side=tk.LEFT)
+        self.status_label.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     
     def _on_channel_select(self, event):
         """Handle channel selection in tree"""
@@ -1132,7 +1152,7 @@ class ChannelTableViewer:
             widget.destroy()
         
         # Create scrollable frame
-        canvas = tk.Canvas(self.general_tab)
+        canvas = tk.Canvas(self.general_tab, bg='#F5F5F5', highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.general_tab, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
         
@@ -1547,7 +1567,20 @@ class ChannelTableViewer:
         for widget in self.dmr_tab.winfo_children():
             widget.destroy()
         
-        frame = ttk.Frame(self.dmr_tab, padding=10)
+        # Create scrollable frame with matching background
+        canvas = tk.Canvas(self.dmr_tab, bg='#F5F5F5', highlightthickness=0)
+        scrollbar = ttk.Scrollbar(self.dmr_tab, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        frame = ttk.Frame(scrollable_frame, padding=10)
         frame.pack(fill=tk.BOTH, expand=True)
         
         is_dmr = ch_data.get('chType', 0) == 1
@@ -1672,6 +1705,10 @@ class ChannelTableViewer:
         emergency_var.trace_add('write', on_emergency_toggle)
         emergency_check.pack(side=tk.LEFT)
         row += 1
+        
+        # Layout canvas and scrollbar
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
     
     def _populate_advanced_tab(self, ch_data):
         """Populate Advanced Settings tab"""
@@ -1679,7 +1716,20 @@ class ChannelTableViewer:
         for widget in self.advanced_tab.winfo_children():
             widget.destroy()
         
-        frame = ttk.Frame(self.advanced_tab, padding=10)
+        # Create scrollable frame with matching background
+        canvas = tk.Canvas(self.advanced_tab, bg='#F5F5F5', highlightthickness=0)
+        scrollbar = ttk.Scrollbar(self.advanced_tab, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        frame = ttk.Frame(scrollable_frame, padding=10)
         frame.pack(fill=tk.BOTH, expand=True)
         
         row = 0
@@ -1758,6 +1808,10 @@ class ChannelTableViewer:
         scan_list_spin = ttk.Spinbox(frame, from_=0, to=10, textvariable=scan_list_var, width=18)
         scan_list_spin.grid(row=row, column=1, sticky=tk.W, padx=10, pady=8)
         row += 1
+        
+        # Layout canvas and scrollbar
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
     
     def _populate_raw_tab(self, ch_data):
         """Populate Raw Data tab with JSON view"""
@@ -1765,14 +1819,15 @@ class ChannelTableViewer:
         for widget in self.raw_tab.winfo_children():
             widget.destroy()
         
-        frame = ttk.Frame(self.raw_tab)
+        # Create frame with matching background
+        frame = tk.Frame(self.raw_tab, bg='#F5F5F5')
         frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         scrollbar = ttk.Scrollbar(frame)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         text_widget = tk.Text(frame, yscrollcommand=scrollbar.set, wrap=tk.WORD,
-                             font=('Consolas', 9))
+                             font=('Consolas', 9), bg='#F5F5F5')
         text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=text_widget.yview)
         

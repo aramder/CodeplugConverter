@@ -49,6 +49,22 @@ This document tracks planned features, enhancements, and known issues for the Co
 
 ## Known Issues / Bugs
 
+### Status Bar Border (Visual Issue)
+**Issue**: Status bar lacks a defined border at the top, creating a soft transition that doesn't look professional
+- **Location**: Bottom of main window where status bar meets the tabbed content area
+- **Impact**: Visual appearance - text overlaps with border area, no clear separation
+- **Attempted Fixes** (Jan 17, 2026):
+  - Added tk.Frame with bg='#AAAAAA' as 2px border line
+  - Changed status bar from ttk.Frame to tk.Frame with bg='#F0F0F0'
+  - Increased padding from (5, 2) to (10, 5)
+  - Used tk.Label instead of ttk.Label for better control
+- **Result**: Changes applied but no visible effect in the running application
+- **Next Steps**: 
+  - Investigate if ttk.Style is overriding the tk.Frame settings
+  - Consider using ttk.Separator with different orientation/styling
+  - May need platform-specific border implementation (Windows vs macOS vs Linux)
+  - Test with different ttk themes to see if 'clam' theme is causing issues
+
 ### Channel Renumbering (Deferred)
 **Issue**: Tree sorting doesn't update visually after changing channelLow in data structure
 - **Attempted Fixes** (Jan 17, 2026 session):
