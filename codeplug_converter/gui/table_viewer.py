@@ -88,6 +88,9 @@ class ChannelTableViewer:
     Branded as "Luminavolt PMR-171 CPS" (Customer Programming Software)
     """
     
+    # Track if current data is unsaved (from fresh read or new file)
+    _is_unsaved_fresh_read: bool = False
+    
     MODE_NAMES = {
         0: "USB", 1: "LSB", 2: "CWR", 3: "CWL",
         4: "AM", 5: "WFM", 6: "NFM", 7: "DIGI",
@@ -551,8 +554,8 @@ class ChannelTableViewer:
     def _read_from_radio(self):
         """Read codeplug from radio via UART (selective or all channels)
         
-        Reads directly into the current codeplug. If channels are selected,
-        only those channels are read. Otherwise reads all 1000 channels.
+        Shows a dialog to select which channels to read, then reads directly
+        into the current codeplug.
         """
         logger.info("=== _read_from_radio() called ===")
         
@@ -575,22 +578,35 @@ class ChannelTableViewer:
         
         logger.info(f"Selected port: {port}")
         
-        # Check if specific channels are selected
+        # Check if specific channels are selected in the R/W Selection panel
         selected_ids = self._get_selected_channel_ids()
         selected_count = len(selected_ids)
         logger.info(f"Selected channel IDs for read: {selected_ids[:10]}... (total: {selected_count})")
         
-        # Determine read mode based on selection
-        if selected_count > 0:
+        # Show read destination dialog (channel range + where to save)
+        read_options = self._show_read_destination_dialog(selected_count)
+        if not read_options:
+            logger.info("User cancelled read destination dialog")
+            return
+        
+        read_mode = read_options['read_mode']
+        to_new_file = read_options['to_new_file']
+        new_filepath = read_options.get('filepath')
+        logger.info(f"User selected read mode: {read_mode}, to_new_file: {to_new_file}")
+        
+        # Determine channels to read based on mode
+        if read_mode == 'selected':
             # Read only selected channels
             channel_indices = [int(ch_id) for ch_id in selected_ids if ch_id.isdigit()]
             total_channels = len(channel_indices)
-            read_mode = 'selected'
-        else:
+        elif read_mode == 'first50':
+            # Read first 50 channels
+            channel_indices = list(range(50))
+            total_channels = 50
+        else:  # 'all'
             # Read all 1000 channels
             channel_indices = None
             total_channels = 1000
-            read_mode = 'all'
         
         logger.info(f"Read mode: {read_mode}, total_channels: {total_channels}")
         
@@ -644,16 +660,28 @@ class ChannelTableViewer:
                     self._save_state("Read selected channels from radio")
                     logger.info("Saved undo state")
                     
-                    # Log current channels state before update
-                    logger.info(f"Current self.channels has {len(self.channels)} channels")
+                    # Handle destination: new codeplug vs update current
+                    if to_new_file:
+                        logger.info("Creating fresh codeplug (to_new_file=True)")
+                        # Create fresh codeplug with only the read channels
+                        self.channels = {}
+                        
+                        # Set a default filename for fresh reads
+                        now = datetime.now()
+                        suggested_filename = f"radio_readback_{now.strftime('%y%m%d_%H%M')}.json"
+                        suggested_path = Path(__file__).parent.parent.parent / suggested_filename
+                        self._update_file_identifier(suggested_path)
+                        self._is_unsaved_fresh_read = True
+                        logger.info(f"Set suggested filename for fresh read: {suggested_filename}")
+                    else:
+                        logger.info(f"Updating current codeplug (self.channels has {len(self.channels)} channels)")
                     
-                    # Update only the read channels - use the REQUESTED index as key
-                    # in case radio response has different index
+                    # Add/update the read channels
                     for ch in channels_read:
                         ch_key = str(ch.index)
                         new_data = ch.to_dict()
-                        # Debug: verify data is different
-                        if ch_key in self.channels:
+                        if not to_new_file and ch_key in self.channels:
+                            # Debug logging for updates
                             old_freq = (
                                 (self.channels[ch_key].get('vfoaFrequency1', 0) << 24) |
                                 (self.channels[ch_key].get('vfoaFrequency2', 0) << 16) |
@@ -668,7 +696,7 @@ class ChannelTableViewer:
                             )
                             logger.info(f"Channel {ch_key}: Old freq={old_freq/1e6:.6f} MHz -> New freq={new_freq/1e6:.6f} MHz")
                         else:
-                            logger.info(f"Channel {ch_key}: NEW channel (not in current codeplug)")
+                            logger.info(f"Channel {ch_key}: Adding channel")
                         self.channels[ch_key] = new_data
                     
                     logger.info(f"After update, self.channels has {len(self.channels)} channels")
@@ -758,12 +786,13 @@ class ChannelTableViewer:
                     self.channels = codeplug
                     self.current_channel = None
                     
-                    # Set a suggested filename for saving (radio_readback with timestamp)
+                    # Set a default filename for fresh reads (user will choose when saving)
                     now = datetime.now()
                     suggested_filename = f"radio_readback_{now.strftime('%y%m%d_%H%M')}.json"
                     suggested_path = Path(__file__).parent.parent.parent / suggested_filename
                     self._update_file_identifier(suggested_path)
-                    logger.info(f"Set suggested filename: {suggested_filename}")
+                    self._is_unsaved_fresh_read = True  # Mark as unsaved fresh read
+                    logger.info(f"Set suggested filename for fresh read: {suggested_filename}")
                     
                     # Rebuild tree
                     logger.info("Rebuilding channel tree...")
@@ -1022,18 +1051,17 @@ class ChannelTableViewer:
             listbox.selection_set(0)
     
     def _show_read_destination_dialog(self, selected_count: int) -> Optional[dict]:
-        """Show dialog to select where to save read data and which channels to read
+        """Show dialog to select which channels to read and where to put the data
         
         Args:
             selected_count: Number of channels currently selected
             
         Returns:
-            Dictionary with 'to_new_file', 'read_mode', and optionally 'filepath' keys, 
-            or None if cancelled
+            Dictionary with 'read_mode' and 'to_new_file' keys, or None if cancelled
         """
         dialog = tk.Toplevel(self.root)
         dialog.title("Read from Radio")
-        dialog.geometry("520x550")
+        dialog.geometry("500x520")
         dialog.transient(self.root)
         dialog.grab_set()
         dialog.resizable(False, False)
@@ -1106,7 +1134,7 @@ class ChannelTableViewer:
         # === Destination Selection ===
         ttk.Separator(content, orient='horizontal').pack(fill='x', pady=15)
         
-        ttk.Label(content, text="Where to save the data:", 
+        ttk.Label(content, text="Where to put the data:", 
                  font=('Arial', 10, 'bold')).pack(anchor='w', pady=(0, 10))
         
         dest_var = tk.StringVar(value='new_file')  # Default to new file for safety
@@ -1114,14 +1142,14 @@ class ChannelTableViewer:
         dest_frame = ttk.Frame(content)
         dest_frame.pack(fill=tk.X, pady=5)
         
-        # Option 1: New file (safest - recommended)
-        new_file_rb = ttk.Radiobutton(dest_frame, text="Save to NEW file (recommended)", 
+        # Option 1: New file (creates fresh codeplug in memory)
+        new_file_rb = ttk.Radiobutton(dest_frame, text="Read to NEW codeplug (recommended)", 
                                        variable=dest_var, value='new_file')
         new_file_rb.pack(anchor='w', padx=10, pady=3)
         
         new_file_desc = ttk.Label(dest_frame, 
-            text="    Creates a new JSON file with the radio data.\n"
-                 "    Your currently open file is NOT modified.",
+            text="    Creates a fresh codeplug with only the radio data.\n"
+                 "    Your currently open file is NOT modified until you Save.",
             font=('Arial', 9), foreground='#666666')
         new_file_desc.pack(anchor='w', padx=10)
         
@@ -1143,38 +1171,13 @@ class ChannelTableViewer:
         button_frame.pack(fill=tk.X, side=tk.BOTTOM)
         
         def on_start_read():
-            to_new_file = (dest_var.get() == 'new_file')
             read_mode = range_var.get()  # 'selected', 'first50', or 'all'
-            
-            if to_new_file:
-                # Ask for file path immediately
-                now = datetime.now()
-                default_filename = f"radio_readback_{now.strftime('%y%m%d_%H%M')}.json"
-                default_dir = str(Path(__file__).parent.parent.parent)
-                
-                filepath = filedialog.asksaveasfilename(
-                    title="Save Radio Readback As",
-                    initialdir=default_dir,
-                    initialfile=default_filename,
-                    defaultextension=".json",
-                    filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-                    parent=dialog
-                )
-                
-                if not filepath:
-                    return  # User cancelled file dialog
-                
-                result['value'] = {
-                    'to_new_file': True,
-                    'read_mode': read_mode,
-                    'filepath': Path(filepath)
-                }
-            else:
-                result['value'] = {
-                    'to_new_file': False,
-                    'read_mode': read_mode,
-                    'filepath': None
-                }
+            to_new_file = (dest_var.get() == 'new_file')
+            result['value'] = {
+                'read_mode': read_mode,
+                'to_new_file': to_new_file,
+                'filepath': None  # No file created yet - just in memory
+            }
             dialog.destroy()
         
         def on_cancel():
@@ -1190,6 +1193,123 @@ class ChannelTableViewer:
         
         cancel_btn = tk.Button(button_frame, text="Cancel", command=on_cancel, 
                               width=12, height=2, font=('Arial', 10))
+        cancel_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Center dialog
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - dialog.winfo_width()) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Wait for dialog
+        self.root.wait_window(dialog)
+        
+        return result['value']
+    
+    def _show_read_options_dialog(self, selected_count: int) -> Optional[dict]:
+        """Show dialog to select which channels to read
+        
+        Args:
+            selected_count: Number of channels currently selected in R/W Selection panel
+            
+        Returns:
+            Dictionary with 'read_mode' key ('selected', 'first50', or 'all'), 
+            or None if cancelled
+        """
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Read from Radio")
+        dialog.geometry("450x320")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        
+        # Header
+        header_frame = tk.Frame(dialog, bg=BLUE_PALETTE['header'], height=40)
+        header_frame.pack(fill=tk.X)
+        header_frame.pack_propagate(False)
+        tk.Label(header_frame, text="Read from Radio - Select Channels", font=('Arial', 11, 'bold'),
+                bg=BLUE_PALETTE['header'], fg='white').pack(side=tk.LEFT, padx=10, pady=8)
+        
+        # Content
+        content = ttk.Frame(dialog, padding=20)
+        content.pack(fill=tk.BOTH, expand=True)
+        
+        # Result holder
+        result = {'value': None}
+        
+        # === Channel Range Selection ===
+        ttk.Label(content, text="Which channels to read:", 
+                 font=('Arial', 10, 'bold')).pack(anchor='w', pady=(0, 10))
+        
+        # Default selection based on whether channels are selected
+        if selected_count > 0:
+            default_range = 'selected'
+        else:
+            default_range = 'first50'  # Default to first 50 for faster reads
+        
+        range_var = tk.StringVar(value=default_range)
+        
+        range_frame = ttk.Frame(content)
+        range_frame.pack(fill=tk.X, pady=5)
+        
+        # Option: Selected channels (always show, but indicate count)
+        selected_text = f"Read {selected_count} selected channel(s)" if selected_count > 0 else "Read selected channels (0 selected)"
+        selected_rb = ttk.Radiobutton(range_frame, 
+            text=selected_text, 
+            variable=range_var, value='selected')
+        selected_rb.pack(anchor='w', padx=10, pady=3)
+        
+        selected_desc = ttk.Label(range_frame,
+            text="    Only reads channels you've checked (☑) in the channel list.",
+            font=('Arial', 9), foreground='#666666')
+        selected_desc.pack(anchor='w', padx=10)
+        
+        # Disable selected option if no channels are selected
+        if selected_count == 0:
+            selected_rb.config(state='disabled')
+        
+        # Option: First 50 channels (quick read)
+        first50_rb = ttk.Radiobutton(range_frame, text="Read first 50 channels (quick)", 
+                                     variable=range_var, value='first50')
+        first50_rb.pack(anchor='w', padx=10, pady=(8, 3))
+        
+        first50_desc = ttk.Label(range_frame,
+            text="    Fast option - reads channels 0-49 only.",
+            font=('Arial', 9), foreground='#666666')
+        first50_desc.pack(anchor='w', padx=10)
+        
+        # Option: All 1000 channels
+        all_rb = ttk.Radiobutton(range_frame, text="Read ALL 1000 channels (full backup)", 
+                                 variable=range_var, value='all')
+        all_rb.pack(anchor='w', padx=10, pady=(8, 3))
+        
+        all_desc = ttk.Label(range_frame,
+            text="    Complete backup - takes several minutes.",
+            font=('Arial', 9), foreground='#666666')
+        all_desc.pack(anchor='w', padx=10)
+        
+        # Button frame
+        button_frame = tk.Frame(dialog, bg='#E8E8E8', pady=15)
+        button_frame.pack(fill=tk.X, side=tk.BOTTOM)
+        
+        def on_start_read():
+            read_mode = range_var.get()  # 'selected', 'first50', or 'all'
+            result['value'] = {'read_mode': read_mode}
+            dialog.destroy()
+        
+        def on_cancel():
+            dialog.destroy()
+        
+        # Start Read button
+        start_btn = tk.Button(button_frame, text="📻  Start Read", command=on_start_read, 
+                             width=18, height=2, font=('Arial', 11, 'bold'),
+                             bg=BLUE_PALETTE['primary'], fg='white',
+                             activebackground=BLUE_PALETTE['primary_dark'], activeforeground='white',
+                             cursor='hand2')
+        start_btn.pack(side=tk.LEFT, padx=15)
+        
+        cancel_btn = tk.Button(button_frame, text="Cancel", command=on_cancel, 
+                              width=10, height=2, font=('Arial', 10))
         cancel_btn.pack(side=tk.LEFT, padx=5)
         
         # Center dialog
@@ -1440,14 +1560,14 @@ class ChannelTableViewer:
         
         # Row 1: Quick select buttons
         quick_select_row = ttk.Frame(selection_frame)
-        quick_select_row.pack(fill=tk.X, pady=2)
+        quick_select_row.pack(fill=tk.X, pady=(2, 5))
         
-        select_all_btn = ttk.Button(quick_select_row, text="Select All", width=10,
+        select_all_btn = ttk.Button(quick_select_row, text="Select All", width=11,
                   command=self._select_all_for_radio)
         select_all_btn.pack(side=tk.LEFT, padx=2)
         ToolTip(select_all_btn, "Select all channels for read/write")
         
-        select_none_btn = ttk.Button(quick_select_row, text="Select None", width=10,
+        select_none_btn = ttk.Button(quick_select_row, text="Select None", width=11,
                   command=self._deselect_all_for_radio)
         select_none_btn.pack(side=tk.LEFT, padx=2)
         ToolTip(select_none_btn, "Deselect all channels")
@@ -1464,9 +1584,12 @@ class ChannelTableViewer:
         active_range_btn.pack(side=tk.LEFT, padx=2)
         ToolTip(active_range_btn, "Select from first to last programmed channel (including empty slots)")
         
+        # Separator between quick select and range selection
+        ttk.Separator(selection_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=3)
+        
         # Row 2: Range selection
         range_row = ttk.Frame(selection_frame)
-        range_row.pack(fill=tk.X, pady=2)
+        range_row.pack(fill=tk.X, pady=(5, 2))
         
         ttk.Label(range_row, text="From:").pack(side=tk.LEFT, padx=(0, 2))
         self.range_from_var = tk.StringVar(value="0")
@@ -1732,21 +1855,38 @@ class ChannelTableViewer:
                 messagebox.showerror("Error", f"Failed to load file: {e}")
     
     def _save_file(self):
-        """Save channel data to JSON file"""
-        # Generate default filename with current date/time
+        """Save channel data to JSON file
+        
+        Implements Save/Save As behavior:
+        - If file exists AND not from fresh read: Save directly (no dialog)
+        - If no file OR fresh read: Show Save As dialog
+        """
+        # Check if we should save directly or show Save As dialog
+        # Direct save: file exists AND it's not an unsaved fresh read
+        if self.current_file and self.current_file.exists() and not self._is_unsaved_fresh_read:
+            # Direct save - no dialog needed
+            try:
+                with open(self.current_file, 'w') as f:
+                    json.dump(self.channels, f, indent=2)
+                self.status_label.config(text=f"Saved to {self.current_file.name}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save file: {e}")
+            return
+        
+        # Save As - show dialog
         now = datetime.now()
         
-        # Use current filename if we have one, otherwise generate new
+        # Use current filename if we have one (even for fresh reads), otherwise generate new
         if self.current_file:
             default_filename = self.current_file.name
-            default_dir = str(self.current_file.parent)
+            default_dir = str(self.current_file.parent) if self.current_file.parent.exists() else str(Path(__file__).parent.parent.parent)
         else:
             default_filename = f"config_{now.strftime('%y%m%d_%H%M')}.json"
             # Get repository root (CodeplugConverter directory)
             default_dir = str(Path(__file__).parent.parent.parent)
         
         filename = filedialog.asksaveasfilename(
-            title="Save Channel Data",
+            title="Save Channel Data As",
             initialdir=default_dir,
             initialfile=default_filename,
             defaultextension=".json",
@@ -1758,8 +1898,9 @@ class ChannelTableViewer:
                 with open(filepath, 'w') as f:
                     json.dump(self.channels, f, indent=2)
                 
-                # Update file tracking
+                # Update file tracking - now it's a saved file
                 self._update_file_identifier(filepath)
+                self._is_unsaved_fresh_read = False  # Clear unsaved flag
                 
                 messagebox.showinfo("Success", "Channel data saved successfully!")
                 self.status_label.config(text=f"Saved to {filepath.name}")
@@ -2324,42 +2465,75 @@ class ChannelTableViewer:
             ch_id = str(ch_num)
             
             if ch_id in self.channels:
-                # Real channel - extract column values
+                # Channel exists in data - check if it's a "programmed" channel or an "empty" one
                 ch_data = self.channels[ch_id]
+                ch_name = ch_data.get('channelName', '').rstrip('\u0000').strip()
                 
-                # Apply search filter
-                if search_text:
-                    ch_name = ch_data.get('channelName', '').rstrip('\u0000').strip().lower()
-                    if search_text not in ch_name and search_text not in ch_id:
-                        continue  # Skip this channel if it doesn't match search
+                # A channel is considered "empty" if it has no name
+                # Empty channels behave like empty slots - hidden unless show_empty is checked
+                is_empty_channel = not ch_name
                 
-                column_values = []
-                for col_id in self.selected_columns:
-                    if col_id == 'sel':
-                        # Special handling for selection checkbox column
-                        column_values.append(self._get_checkbox_display(ch_id))
-                    elif col_id in self.available_columns:
-                        extract_func = self.available_columns[col_id]['extract']
-                        column_values.append(extract_func(ch_data))
-                
-                # Determine parent based on grouping option
-                if group_by_type:
-                    parent_node = dmr_node if ch_data.get('chType', 0) == 1 else analog_node
-                elif group_by_mode:
-                    ch_mode = self.MODE_NAMES.get(ch_data.get('vfoaMode', 6), 'NFM')
-                    parent_node = mode_nodes.get(ch_mode, '')
+                if is_empty_channel:
+                    # Empty channel - treat like empty slot (hidden unless show_empty)
+                    if not show_empty or search_text:
+                        continue  # Skip empty channels when filter is off or searching
+                    
+                    # Show as grayed-out empty slot
+                    empty_values = []
+                    for col_id in self.selected_columns:
+                        if col_id == 'ch':
+                            empty_values.append(ch_id)
+                        elif col_id == 'name':
+                            empty_values.append('(empty slot)')
+                        else:
+                            empty_values.append('—')
+                    
+                    # Determine parent for empty channels
+                    if group_by_type:
+                        parent_node = analog_node  # Put empty slots under Analog by default
+                    else:
+                        parent_node = ''  # Root level
+                    
+                    item_id = self.channel_tree.insert(parent_node, 'end',
+                        text='☐',  # Empty checkbox
+                        values=tuple(empty_values),
+                        tags=(ch_id, 'empty')  # Tag as empty for styling
+                    )
                 else:
-                    parent_node = ''  # Root level when not grouping
-                
-                # Insert item - checkbox in #0 (text), data in columns
-                checkbox = self._get_checkbox_display(ch_id)
-                item_id = self.channel_tree.insert(parent_node, 'end',
-                    text=checkbox,
-                    values=tuple(column_values),
-                    tags=(ch_id,)
-                )
+                    # Programmed channel with a name - always show (subject to search filter)
+                    
+                    # Apply search filter
+                    if search_text:
+                        if search_text not in ch_name.lower() and search_text not in ch_id:
+                            continue  # Skip this channel if it doesn't match search
+                    
+                    column_values = []
+                    for col_id in self.selected_columns:
+                        if col_id == 'sel':
+                            # Special handling for selection checkbox column
+                            column_values.append(self._get_checkbox_display(ch_id))
+                        elif col_id in self.available_columns:
+                            extract_func = self.available_columns[col_id]['extract']
+                            column_values.append(extract_func(ch_data))
+                    
+                    # Determine parent based on grouping option
+                    if group_by_type:
+                        parent_node = dmr_node if ch_data.get('chType', 0) == 1 else analog_node
+                    elif group_by_mode:
+                        ch_mode = self.MODE_NAMES.get(ch_data.get('vfoaMode', 6), 'NFM')
+                        parent_node = mode_nodes.get(ch_mode, '')
+                    else:
+                        parent_node = ''  # Root level when not grouping
+                    
+                    # Insert item - checkbox in #0 (text), data in columns
+                    checkbox = self._get_checkbox_display(ch_id)
+                    item_id = self.channel_tree.insert(parent_node, 'end',
+                        text=checkbox,
+                        values=tuple(column_values),
+                        tags=(ch_id,)
+                    )
             else:
-                # Empty slot - show placeholder (only when show_empty is on AND no search active)
+                # Empty slot (not in self.channels) - show placeholder only when show_empty is on AND no search active
                 if not show_empty or search_text:
                     continue
                     
@@ -2402,21 +2576,35 @@ class ChannelTableViewer:
         if hasattr(self, 'status_label'):
             visible_count = len([item for item in self.channel_tree.get_children('') 
                                if self.channel_tree.item(item, 'tags')])
-            if group_by_type:
+            if group_by_type or group_by_mode:
                 # Count children in groups
                 visible_count = 0
                 for group in self.channel_tree.get_children(''):
                     visible_count += len(self.channel_tree.get_children(group))
             
-            empty_count = len(all_slots) - len(existing_ids) if show_empty else 0
+            # Count programmed vs empty channels in self.channels
+            programmed_count = 0
+            empty_channel_count = 0
+            for ch_id, ch_data in self.channels.items():
+                ch_name = ch_data.get('channelName', '').rstrip('\u0000').strip()
+                if ch_name:
+                    programmed_count += 1
+                else:
+                    empty_channel_count += 1
+            
+            # Count empty slots (not in self.channels at all)
+            empty_slot_count = len(all_slots) - len(existing_ids) if show_empty else 0
+            
+            # Total empty = empty channels (no name) + empty slots (not in dict)
+            total_empty = empty_channel_count + empty_slot_count
             
             # Build status message
             if search_text:
                 self.status_label.config(text=f"Search: '{search_text}' | Showing {visible_count} channels")
-            elif show_empty and empty_count > 0:
-                self.status_label.config(text=f"Total: {len(self.channels)} channels + {empty_count} empty slots")
+            elif show_empty and total_empty > 0:
+                self.status_label.config(text=f"Total: {programmed_count} channels + {total_empty} empty slots")
             else:
-                self.status_label.config(text=f"Total Channels: {len(self.channels)} | Ready")
+                self.status_label.config(text=f"Total: {programmed_count} channels + {total_empty} empty slots")
     
     def _get_first_channel_item(self):
         """Get the first channel item in the tree (skip group nodes)"""
@@ -3934,7 +4122,12 @@ class ChannelTableViewer:
         self.status_label.config(text=f"Selected range {first_active}-{last_active} ({count} channels, including empty slots)")
     
     def _select_channel_range(self):
-        """Select channels within the specified From/To range"""
+        """Select channels within the specified From/To range
+        
+        If the To: value exceeds existing channels, new empty channels are created
+        up to that number and selected. All channels in the range are selected,
+        including empty slots.
+        """
         try:
             from_ch = int(self.range_from_var.get())
             to_ch = int(self.range_to_var.get())
@@ -3947,27 +4140,52 @@ class ChannelTableViewer:
         if from_ch > to_ch:
             from_ch, to_ch = to_ch, from_ch  # Swap if reversed
         
+        # Get current max channel number
+        existing_ids = [int(ch_id) for ch_id in self.channels.keys() if ch_id.isdigit()]
+        max_existing = max(existing_ids) if existing_ids else -1
+        
+        # Create new empty channels if range extends beyond existing
+        new_channels_created = 0
+        need_undo_save = to_ch > max_existing or any(str(ch) not in self.channels for ch in range(from_ch, min(to_ch + 1, max_existing + 1)))
+        
+        if need_undo_save:
+            # Save state for undo since we're creating channels
+            self._save_state("Create channels for range selection")
+        
+        # Create ALL channels in range (including gaps)
+        for ch_num in range(from_ch, to_ch + 1):
+            ch_id = str(ch_num)
+            if ch_id not in self.channels:
+                # Create empty channel
+                new_channel = self._create_default_channel()
+                new_channel['channelLow'] = ch_num
+                new_channel['channelName'] = ''.ljust(16, '\u0000')[:16]  # Empty name
+                self.channels[ch_id] = new_channel
+                new_channels_created += 1
+        
         # First deselect all
         for var in self.channel_checkboxes.values():
             var.set(False)
         
+        # Select ALL channels in range (including empty ones)
         count = 0
-        for ch_id in self.channels.keys():
-            if ch_id.isdigit():
-                ch_num = int(ch_id)
-                in_range = from_ch <= ch_num <= to_ch
-                
-                if ch_id not in self.channel_checkboxes:
-                    self.channel_checkboxes[ch_id] = tk.BooleanVar(value=in_range)
-                else:
-                    self.channel_checkboxes[ch_id].set(in_range)
-                
-                if in_range:
-                    count += 1
+        for ch_num in range(from_ch, to_ch + 1):
+            ch_id = str(ch_num)
+            # All channels in range should now exist (created above if needed)
+            if ch_id not in self.channel_checkboxes:
+                self.channel_checkboxes[ch_id] = tk.BooleanVar(value=True)
+            else:
+                self.channel_checkboxes[ch_id].set(True)
+            count += 1
         
         self._update_selection_count()
         self._rebuild_channel_tree(reselect_channel_id=self.current_channel)
-        self.status_label.config(text=f"Selected range {from_ch}-{to_ch} ({count} channels)")
+        
+        # Build status message
+        if new_channels_created > 0:
+            self.status_label.config(text=f"Selected range {from_ch}-{to_ch} ({count} channels, created {new_channels_created} new)")
+        else:
+            self.status_label.config(text=f"Selected range {from_ch}-{to_ch} ({count} channels)")
     
     def _update_selection_count(self):
         """Update the selection count label"""
