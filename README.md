@@ -41,8 +41,7 @@ PMR-171 CPS is a **Channel Programming Software** for the Guohetec PMR-171 wideb
 | **UART Programming** | ✅ Complete | Direct read/write to radio without manufacturer software |
 | **CTCSS Tones** | ✅ Complete | All 50 standard tones mapped and validated |
 | **Multi-Mode** | ✅ Complete | NFM, WFM, AM, USB, LSB, CW, DMR support |
-| **CHIRP Import** | ✅ Complete | Import from CHIRP .img files |
-| **CSV Export** | ✅ Complete | Export for spreadsheet analysis |
+| **CSV Import/Export** | ✅ Complete | Import/export for spreadsheet analysis |
 | **DCS Tones** | ⏸️ Pending | Awaiting radio firmware support |
 
 ### GUI Capabilities
@@ -57,13 +56,17 @@ PMR-171 CPS is a **Channel Programming Software** for the Guohetec PMR-171 wideb
 ### Direct Radio Programming
 
 ```bash
-# Read channels from radio
-python -m pmr_171_cps view output.json
-# Use Radio menu → Read from Radio
+# Launch the CPS GUI
+python -m pmr_171_cps
 
-# Write channels to radio  
-# Use Radio menu → Write to Radio
+# Or open an existing file
+python -m pmr_171_cps view output.json
 ```
+
+From the GUI:
+- **Read from Radio**: Click the `📻➡ Read` toolbar button (or Ctrl+R)
+- **Write to Radio**: Click the `📻⬅ Write` toolbar button (or Ctrl+W)
+- **COM Port Selection**: Use arrow keys to navigate, Enter to connect
 
 **Connection Parameters** (discovered through reverse engineering):
 - Baud: 115200, 8N1
@@ -134,13 +137,11 @@ pip install -e .
 ### Launch GUI
 
 ```bash
+# Start with empty editor (read from radio or open file)
+python -m pmr_171_cps
+
+# Or open an existing JSON file
 python -m pmr_171_cps view examples/Mode_Test.json
-```
-
-### Convert CHIRP Files
-
-```bash
-python -m pmr_171_cps convert radio.img -o output.json
 ```
 
 ---
@@ -222,8 +223,7 @@ PMR_171_CPS/
 - [x] GUI channel editor with professional styling
 - [x] Direct UART read/write to radio
 - [x] Complete CTCSS tone mapping (50 tones)
-- [x] CHIRP .img file import
-- [x] CSV export
+- [x] CSV import/export
 - [x] Multi-mode support (NFM, AM, USB, LSB, DMR)
 - [x] 24 automated format validation tests
 - [x] Hardware-in-the-loop testing
