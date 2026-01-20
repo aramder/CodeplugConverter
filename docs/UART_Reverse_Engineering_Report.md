@@ -138,20 +138,9 @@ Phase 6: Validation
 | Item | Specification |
 |------|---------------|
 | Radio | PMR-171 (Firmware v1.5+) |
-| Cable | USB-UART programming cable (CH340 chipset) |
+| Cable | USB-A to USB-C (provided with radio) |
 | Computer | Windows 11, Python 3.10+ |
 | COM Port | COM3 (varies by system) |
-
-### 3.2 Cable Pinout
-
-```
-USB Side          Radio Side
-─────────         ──────────
-VCC (5V)    ───►  Not Connected
-GND         ───►  GND
-TX          ───►  RX (Radio)
-RX          ◄───  TX (Radio)
-```
 
 ### 3.3 Connection Parameters
 
