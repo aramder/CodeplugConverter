@@ -23,7 +23,6 @@ This report documents the successful reverse engineering of the Guohetec PMR-171
 
 ### Project Metrics
 
-- **Development Time:** ~40 hours over 2 weeks
 - **Test Channels Validated:** 5/5 (100% success rate)
 - **Code Location:** `pmr_171_cps/radio/pmr171_uart.py`
 - **Test Script:** `tests/test_uart_read_write_verify.py`
@@ -57,12 +56,13 @@ This report documents the successful reverse engineering of the Guohetec PMR-171
 3. [Hardware Setup](#3-hardware-setup)
 4. [Protocol Discovery](#4-protocol-discovery)
 5. [Packet Structure Analysis](#5-packet-structure-analysis)
-6. [Implementation](#6-implementation)
-7. [Validation & Testing](#7-validation--testing)
-8. [Challenges & Solutions](#8-challenges--solutions)
-9. [Lessons Learned](#9-lessons-learned)
-10. [Future Work](#10-future-work)
-11. [Appendices](#appendices)
+6. [Programming Sequence](#6-programming-sequence)
+7. [Implementation](#7-implementation)
+8. [Validation & Testing](#8-validation--testing)
+9. [Challenges & Solutions](#9-challenges--solutions)
+10. [Lessons Learned](#10-lessons-learned)
+11. [Future Work](#11-future-work)
+12. [Appendices](#appendices)
 
 ---
 
@@ -139,8 +139,18 @@ Phase 6: Validation
 |------|---------------|
 | Radio | PMR-171 (Firmware v1.5+) |
 | Cable | USB-A to USB-C (provided with radio) |
+| Cable | USB-A to USB-C cable (direct connection) |
 | Computer | Windows 11, Python 3.10+ |
 | COM Port | COM3 (varies by system) |
+
+### 3.2 USB Connection
+
+The PMR-171 has a built-in USB-C port that connects directly to the computer using a standard USB-A to USB-C cable. When connected, the radio presents as a **USB composite device** with two interfaces:
+
+1. **USB Serial Port (CDC ACM)** - Used for programming and CAT control
+2. **USB Audio Device** - Enables digital audio I/O for data modes
+
+No external USB-to-UART adapter or programming cable is required. The serial port appears as a standard COM port (e.g., COM3 on Windows, `/dev/ttyACM0` on Linux).
 
 ### 3.3 Connection Parameters
 
@@ -193,38 +203,48 @@ Factory software captures revealed:
 ### 5.1 Command Packet Format
 
 ```
-┌────────┬────────┬────────┬─────────────┬──────────┐
-│ Header │ Length │ Cmd ID │ Payload     │ Checksum │
-│ (2 B)  │ (1 B)  │ (1 B)  │ (Variable)  │ (1 B)    │
-└────────┴────────┴────────┴─────────────┴──────────┘
+┌─────────────────────────┬────────┬────────┬─────────────┬─────────────┐
+│ Header                  │ Length │ Cmd ID │ Payload     │ CRC-16      │
+│ (4 B: 0xA5 0xA5 0xA5 A5)│ (1 B)  │ (1 B)  │ (Variable)  │ (2 B, BE)   │
+└─────────────────────────┴────────┴────────┴─────────────┴─────────────┘
 ```
+
+**Length field:** Includes command byte (1) + payload + CRC (2)
+
+**CRC-16-CCITT:** Polynomial 0x1021, initial value 0xFFFF, calculated over Length + Command + Payload bytes
 
 ### 5.2 Identified Commands
 
 | Command | Code | Description |
 |---------|------|-------------|
-| Read Block | 0x52 | Read memory at address |
-| Write Block | 0x57 | Write data to address |
-| ACK | 0x06 | Acknowledgment |
-| NAK | 0x15 | Negative acknowledgment |
+| Channel Read | 0x41 | Read channel data (2-byte index request, 26-byte response) |
+| Channel Write | 0x40 | Write channel data (26-byte payload) |
+| PTT Control | 0x07 | Push-to-talk control |
+| Mode Setting | 0x0A | Set operating mode |
+| Status Sync | 0x0B | Status synchronization |
+| Equipment Type | 0x27 | Query radio model/firmware |
+| Power Class | 0x28 | Power level control |
+| RIT Setting | 0x29 | Receiver Incremental Tuning |
+| Spectrum Data | 0x39 | Spectrum analyzer data |
 
 ### 5.3 Channel Data Structure
 
-Each channel occupies a fixed memory block with 40+ fields:
+Each channel packet contains 26 bytes of data:
 
 ```
 Offset  Field               Size    Description
 ──────  ─────               ────    ───────────
-0x00    channelHigh         1       Channel number MSB
-0x01    channelLow          1       Channel number LSB
-0x02    vfoaFrequency1-4    4       VFO A frequency (Hz, big-endian)
-0x06    vfobFrequency1-4    4       VFO B frequency (Hz, big-endian)
-0x0A    mode                1       Operating mode (0-9)
-0x0B    channelName         12      ASCII, null-padded
-0x17    emitYayin           1       TX CTCSS code
-0x18    receiveYayin        1       RX CTCSS code
-...     (additional fields)
+0x00    channelIndex        2       Channel number (big-endian, 0-999)
+0x02    rxMode              1       RX operating mode (see Mode Values)
+0x03    txMode              1       TX operating mode
+0x04    rxFrequency         4       RX frequency in Hz (big-endian)
+0x08    txFrequency         4       TX frequency in Hz (big-endian)
+0x0C    rxCtcssIndex        1       RX CTCSS tone index (0-55)
+0x0D    txCtcssIndex        1       TX CTCSS tone index (0-55)
+0x0E    channelName         12      ASCII, null-terminated
 ```
+
+**Total:** 26 bytes per channel
 
 ### 5.4 Frequency Encoding
 
@@ -242,23 +262,154 @@ bytes = frequency_hz.to_bytes(4, 'big')
 
 ### 5.5 CTCSS Tone Encoding
 
-Non-linear mapping discovered through systematic testing:
+Tone index to frequency mapping (standard EIA/TIA CTCSS tones):
 
-| Tone (Hz) | Yayin Value |
-|-----------|-------------|
-| 67.0 | 1 |
-| 71.9 | 2 |
-| 74.4 | 3 |
-| ... | ... |
-| 254.1 | 50 |
+| Index | Tone (Hz) | Index | Tone (Hz) | Index | Tone (Hz) |
+|-------|-----------|-------|-----------|-------|-----------|
+| 0 | None | 19 | 123.0 | 38 | 189.9 |
+| 1 | 67.0 | 20 | 127.3 | 39 | 192.8 |
+| 2 | 69.3 | 21 | 131.8 | 40 | 196.6 |
+| 3 | 71.9 | 22 | 136.5 | 41 | 199.5 |
+| 4 | 74.4 | 23 | 141.3 | 42 | 203.5 |
+| 5 | 77.0 | 24 | 146.2 | 43 | 206.5 |
+| 6 | 79.7 | 25 | 150.0 | 44 | 210.7 |
+| 7 | 82.5 | 26 | 151.4 | 45 | 213.8 |
+| 8 | 85.4 | 27 | 156.7 | 46 | 218.1 |
+| 9 | 88.5 | 28 | 159.8 | 47 | 221.3 |
+| 10 | 91.5 | 29 | 162.2 | 48 | 225.7 |
+| 11 | 94.8 | 30 | 165.5 | 49 | 229.1 |
+| 12 | 97.4 | 31 | 167.9 | 50 | 233.6 |
+| 13 | 100.0 | 32 | 171.3 | 51 | 237.1 |
+| 14 | 103.5 | 33 | 173.8 | 52 | 241.8 |
+| 15 | 107.2 | 34 | 177.3 | 53 | 245.5 |
+| 16 | 110.9 | 35 | 179.9 | 54 | 250.3 |
+| 17 | 114.8 | 36 | 183.5 | 55 | 254.1 |
+| 18 | 118.8 | 37 | 186.2 | | |
 
-**Key Discovery:** Fields `rxCtcss` and `txCtcss` are IGNORED by radio. Only `emitYayin` and `receiveYayin` control actual tone operation.
+**Key Discovery:** The factory software uses redundant fields (`rxCtcss`/`txCtcss`) that are IGNORED by the radio firmware. Only the `emitYayin` (TX tone) and `receiveYayin` (RX tone) fields control actual tone squelch operation.
 
 ---
 
-## 6. Implementation
+## 6. Programming Sequence
 
-### 6.1 Architecture
+### 6.1 Sequence Overview
+
+The following diagram illustrates the complete communication sequence for reading and writing channel data:
+
+![Protocol Sequence Diagram](images/protocol_sequence.png)
+
+### 6.2 Detailed Packet Flow
+
+![Packet Structure Diagram](images/packet_structure.png)
+
+### 6.3 Step-by-Step Protocol
+
+#### Phase 1: Initialization
+
+1. **Open Serial Port**
+   - Configure: 115200 baud, 8N1
+   - Set DTR = HIGH
+   - Set RTS = HIGH
+   - Wait 500ms for radio to enter programming mode
+
+2. **Optional: Query Radio Identity**
+   ```
+   TX: [A5 A5 A5 A5] [03] [27] [CRC16]
+   RX: [A5 A5 A5 A5] [NN] [27] [Model/FW Data] [CRC16]
+   ```
+
+#### Phase 2: Read Operation
+
+For each channel (0-999):
+
+1. **Send Read Request**
+   ```
+   TX: [A5 A5 A5 A5] [05] [41] [CH_HI] [CH_LO] [CRC16]
+   ```
+   - Length = 0x05 (1 cmd + 2 channel + 2 CRC)
+   - Command = 0x41 (Channel Read)
+   - Channel index as big-endian 16-bit
+
+2. **Receive Channel Data**
+   ```
+   RX: [A5 A5 A5 A5] [1D] [41] [26 bytes channel data] [CRC16]
+   ```
+   - Length = 0x1D (29 = 1 cmd + 26 data + 2 CRC)
+   - Payload contains full channel configuration
+
+3. **Verify CRC and Parse**
+   - Calculate CRC over bytes from Length through end of payload
+   - Compare with received CRC (big-endian)
+   - Parse 26-byte payload into channel structure
+
+#### Phase 3: Write Operation
+
+For each modified channel:
+
+1. **Send Write Request**
+   ```
+   TX: [A5 A5 A5 A5] [1D] [40] [26 bytes channel data] [CRC16]
+   ```
+   - Length = 0x1D (29 = 1 cmd + 26 data + 2 CRC)
+   - Command = 0x40 (Channel Write)
+   - Full 26-byte channel payload
+
+2. **Receive Acknowledgment**
+   ```
+   RX: [A5 A5 A5 A5] [1D] [40] [26 bytes echoed data] [CRC16]
+   ```
+   - Radio echoes back the written data as confirmation
+   - Verify echo matches sent data
+
+#### Phase 4: Disconnect
+
+1. **Close Connection**
+   - Set DTR = LOW
+   - Set RTS = LOW
+   - Close serial port
+   - Radio exits programming mode automatically
+
+### 6.4 Timing Considerations
+
+| Operation | Typical Time | Notes |
+|-----------|--------------|-------|
+| Port open + stabilize | 500ms | Required for DTR/RTS to take effect |
+| Single channel read | ~50ms | Request + response |
+| Single channel write | ~50ms | Write + ACK |
+| Full 1000-channel read | ~50-60s | Sequential operation |
+
+### 6.5 Example: Reading Channel 42
+
+**Request Packet Construction:**
+```
+Channel index: 42 = 0x002A (big-endian)
+
+Payload for CRC: [05] [41] [00] [2A]
+CRC-16-CCITT:    0x???? (calculated)
+
+Full packet: A5 A5 A5 A5 05 41 00 2A [CRC_HI] [CRC_LO]
+```
+
+**Response Parsing:**
+```
+Received: A5 A5 A5 A5 1D 41 [26 bytes] [CRC_HI] [CRC_LO]
+
+Payload breakdown:
+  Bytes 0-1:   00 2A        → Channel 42
+  Byte 2:      06           → RX Mode = NFM
+  Byte 3:      06           → TX Mode = NFM  
+  Bytes 4-7:   08 BC 8C 80  → RX Freq = 146,520,000 Hz (146.52 MHz)
+  Bytes 8-11:  08 BC 8C 80  → TX Freq = 146,520,000 Hz
+  Byte 12:     0D           → RX CTCSS = index 13 (100.0 Hz)
+  Byte 13:     0D           → TX CTCSS = index 13 (100.0 Hz)
+  Bytes 14-25: "SIMPLEX\x00\x00\x00\x00\x00" → Channel name
+```
+
+---
+
+## 7. Implementation
+
+### 7.1 Architecture
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -277,7 +428,7 @@ Non-linear mapping discovered through systematic testing:
 └─────────────────────────────────────────────┘
 ```
 
-### 6.2 Key Code Components
+### 7.2 Key Code Components
 
 **Connection Setup:**
 ```python
@@ -310,7 +461,7 @@ def read_channel(self, channel_num: int) -> dict:
     return self._parse_channel(response)
 ```
 
-### 6.3 Error Handling
+### 7.3 Error Handling
 
 | Error Type | Recovery Strategy |
 |------------|-------------------|
@@ -321,9 +472,9 @@ def read_channel(self, channel_num: int) -> dict:
 
 ---
 
-## 7. Validation & Testing
+## 8. Validation & Testing
 
-### 7.1 Test Strategy
+### 8.1 Test Strategy
 
 ```
 Level 1: Unit Tests
@@ -342,7 +493,7 @@ Level 3: System Tests
     - Verification on radio
 ```
 
-### 7.2 Validation Results
+### 8.2 Validation Results
 
 **Test Run: January 19, 2026**
 
@@ -353,7 +504,7 @@ Level 3: System Tests
 | Name Handling | 5 | ✅ PASS | Up to 11 chars |
 | Frequency Range | 5 | ✅ PASS | VHF + UHF |
 
-### 7.3 Test Command
+### 8.3 Test Command
 
 ```bash
 python tests/test_uart_read_write_verify.py --port COM3 --channels 5 --yes
@@ -377,9 +528,9 @@ Channel 15: PASS
 
 ---
 
-## 8. Challenges & Solutions
+## 9. Challenges & Solutions
 
-### 8.1 Challenge: Silent Radio
+### 9.1 Challenge: Silent Radio
 
 **Problem:** Radio did not respond to any commands initially.
 
@@ -400,7 +551,7 @@ ser.dtr = True
 ser.rts = True
 ```
 
-### 8.2 Challenge: CTCSS Not Working
+### 9.2 Challenge: CTCSS Not Working
 
 **Problem:** Programmed CTCSS tones were not activating on radio.
 
@@ -411,7 +562,7 @@ ser.rts = True
 
 **Solution:** Use emitYayin and receiveYayin fields with non-linear encoding lookup table.
 
-### 8.3 Challenge: Echo in Responses
+### 9.3 Challenge: Echo in Responses
 
 **Problem:** Read responses contained echoed command bytes.
 
@@ -419,16 +570,16 @@ ser.rts = True
 
 ---
 
-## 9. Lessons Learned
+## 10. Lessons Learned
 
-### 9.1 Technical Insights
+### 10.1 Technical Insights
 
 1. **Control Signals Matter:** Serial DTR/RTS can be critical for device communication
 2. **Field Names Mislead:** Protocol field names don't always match functionality
 3. **Iterative Testing:** Systematic test matrices reveal patterns faster than guessing
 4. **Capture Everything:** Comprehensive logging saves time during debugging
 
-### 9.2 Process Improvements
+### 10.2 Process Improvements
 
 | What Worked | What To Improve |
 |-------------|-----------------|
@@ -437,38 +588,27 @@ ser.rts = True
 | Automated test scripts | Better error message logging |
 | Version control for all changes | Parallel testing on spare radio |
 
-### 9.3 Time Investment
-
-| Phase | Estimated | Actual |
-|-------|-----------|--------|
-| Research | 4 hrs | 6 hrs |
-| Capture & Analysis | 8 hrs | 12 hrs |
-| Implementation | 12 hrs | 16 hrs |
-| Testing & Debug | 8 hrs | 10 hrs |
-| Documentation | 4 hrs | 4 hrs |
-| **Total** | **36 hrs** | **48 hrs** |
-
 ---
 
-## 10. Future Work
+## 11. Future Work
 
-### 10.1 Planned Enhancements
+### 11.1 Planned Enhancements
 
-| Priority | Enhancement | Effort |
-|----------|-------------|--------|
-| Low | DCS tone support | 6-8 hrs (when firmware supports) |
-| Medium | Progress indicators | 2 hrs |
-| Medium | Compare Radio vs File | 4 hrs |
-| Low | Batch programming | 4 hrs |
+| Priority | Enhancement |
+|----------|-------------|
+| Low | DCS tone support (when firmware supports) |
+| Medium | Progress indicators |
+| Medium | Compare Radio vs File |
+| Low | Batch programming |
 
-### 10.2 Documentation TODO
+### 11.2 Documentation TODO
 
 - [ ] Create video tutorial
 - [ ] Write user troubleshooting guide
 - [ ] Generate packet format diagrams
 - [ ] Publish community documentation
 
-### 10.3 Community Contributions
+### 11.3 Community Contributions
 
 The protocol documentation and Python implementation are available in the CodeplugConverter repository for community use and improvement.
 
@@ -485,30 +625,42 @@ The protocol documentation and Python implementation are available in the Codepl
 | Testing Documentation | `docs/Uart_Testing.md` |
 | Capture Files | `tests/test_configs/Results/*.spm` |
 
-### B. Complete CTCSS Mapping Table
+### B. CRC-16-CCITT Implementation
 
-| Index | Tone (Hz) | Yayin |
-|-------|-----------|-------|
-| 1 | 67.0 | 1 |
-| 2 | 71.9 | 2 |
-| 3 | 74.4 | 3 |
-| 4 | 77.0 | 4 |
-| 5 | 79.7 | 5 |
-| ... | ... | ... |
-
-*Full table available in `docs/Complete_Ctcss_Mapping.md`*
+```python
+def crc16_ccitt(data: bytes) -> int:
+    """
+    Calculate CRC-16-CCITT for PMR-171 protocol.
+    Polynomial: 0x1021, Initial value: 0xFFFF
+    Input: bytes from Length field through last DATA byte
+    """
+    crc = 0xFFFF
+    for byte in data:
+        cur = byte << 8
+        for _ in range(8):
+            if (crc ^ cur) & 0x8000:
+                crc = ((crc << 1) ^ 0x1021) & 0xFFFF
+            else:
+                crc = (crc << 1) & 0xFFFF
+            cur = (cur << 1) & 0xFFFF
+    return crc
+```
 
 ### C. Mode Values
 
-| Mode | Value | Description |
-|------|-------|-------------|
-| NFM | 0 | Narrow FM |
-| WFM | 1 | Wide FM |
-| AM | 2 | Amplitude Modulation |
-| USB | 4 | Upper Sideband |
-| LSB | 5 | Lower Sideband |
-| CW | 6 | Continuous Wave |
-| DMR | 9 | Digital Mobile Radio |
+| Value | Mode | Description |
+|-------|------|-------------|
+| 0 | USB | Upper Sideband |
+| 1 | LSB | Lower Sideband |
+| 2 | CWR | CW Reverse |
+| 3 | CWL | CW Lower |
+| 4 | AM | Amplitude Modulation |
+| 5 | WFM | Wide FM |
+| 6 | NFM | Narrow FM |
+| 7 | DIGI | Digital |
+| 8 | PKT | Packet |
+| 9 | DMR | Digital Mobile Radio |
+| 255 | UNUSED | Empty/Unused channel |
 
 ### D. References
 
