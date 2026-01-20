@@ -50,71 +50,16 @@ This document tracks planned features, enhancements, and known issues for the PM
 ### Core Functionality
 - [x] **Dual frequency architecture**: PMR-171 requires TWO frequencies per memory channel (VFO A and VFO B), but CHIRP only provides one. **Solution**: When importing from single-frequency sources (CHIRP), program the same frequency into both VFO A and VFO B (simplex operation). No intermediate format needed. (Jan 2026)
 
-- [ ] **UART Serial Transaction Analysis**: Analyze captured programming data to reverse engineer the PMR-171 UART protocol
-  - [x] **Captured data available**: UART transaction logs stored in `tests/test_configs/Results/`
-    - `07_readback_uart_monitor.spm` - Eltima Serial Monitor capture of Test 07 readback
-    - `07_upload_uart_monitor.spm` - Upload operation for Test 07
-    - `08_upload_uart_monitor.spm` - Upload operation for Test 08
-    - `09_tone_pattern_test_manual_full_update_readback.spm` - Manual update readback
-    - `09_upload_uart_monitor.spm` - Upload operation for Test 09
-    - `10_complete_ctcss_mapping_test_readback.spm` - Test 10 readback
-    - `11_complete_ctcss_validation_readback.spm` - Test 11 validation readback
-    - `11_complete_ctcss_validation_readback_uploade.spm` - Test 11 upload (LARGEST - full transaction log)
-  - [ ] **Phase 1: Extract and analyze capture format**
-    - [ ] Parse Eltima .spm binary format to understand structure
-    - [ ] Extract raw COM6 transaction data (TX/RX bytes with timestamps)
-    - [ ] Convert to hex dumps for analysis (create analysis scripts in tests/test_configs/Results/)
-    - [ ] Generate human-readable transcripts showing data flow
-  - [ ] **Phase 2: Initial pattern recognition**
-    - [ ] Compare 11_complete_ctcss_validation_readback_uploade.spm (upload) vs 11_complete_ctcss_validation_readback.spm (readback)
-    - [ ] Identify repeating byte patterns (command headers, packet delimiters)
-    - [ ] Look for ASCII strings (model name, version info)
-    - [ ] Find correlation between known channel data and transmitted bytes
-    - [ ] Map out transaction sequence (init → commands → data → verify)
-  - [ ] **Phase 3: Decode packet structure**
-    - [ ] Identify packet boundaries (start bytes, length fields, end bytes)
-    - [ ] Extract suspected command codes from packet headers
-    - [ ] Correlate CTCSS tone values (67.0Hz=0x01, 123.0Hz=0x03, etc.) with transmitted bytes
-    - [ ] Find memory addresses or channel selectors
-    - [ ] Identify data payload sections
-  - [ ] **Phase 4: Checksum/CRC analysis**
-    - [ ] Extract suspected checksum bytes from end of packets
-    - [ ] Test common algorithms: CRC-16-CCITT, CRC-16-XMODEM, CRC-32, simple sum, XOR
-    - [ ] Use online CRC calculators to test hypotheses
-    - [ ] Implement validated checksum in Python
-  - [ ] **Phase 5: Build protocol decoder**
-    - [ ] Create `analyze_uart_capture.py` script in tests/test_configs/Results/
-    - [ ] Parse .spm files and extract raw bytes
-    - [ ] Implement packet parser based on discovered structure
-    - [ ] Annotate packets with decoded information (command type, address, data, checksum)
-    - [ ] Generate protocol documentation with examples
-  - [ ] **Catalog capture files**: Document what each capture represents (already partially done via filenames)
-    - [ ] Determine which are full codeplug operations vs partial updates
-    - [ ] Identify read vs write transactions
-  - [ ] **Identify communication parameters**:
-    - [ ] Determine baud rate from capture timing
-    - [ ] Identify data bits, parity, stop bits
-    - [ ] Check for flow control signals
-  - [ ] **Analyze packet structure**:
-    - [ ] Identify packet start/sync patterns (header bytes)
-    - [ ] Map command codes (read, write, verify, identify, etc.)
-    - [ ] Determine address/memory location format
-    - [ ] Analyze data payload structure
-    - [ ] Identify checksum/CRC algorithm and location
-    - [ ] Find packet terminator/footer bytes
-  - [ ] **Document command sequences**:
-    - [ ] Map initialization/handshake sequence
-    - [ ] Document radio identification request/response
-    - [ ] Analyze full codeplug read sequence
-    - [ ] Analyze full codeplug write sequence
-    - [ ] Document verification commands
-  - [ ] **Reverse engineer checksums**:
-    - [ ] Extract checksum bytes from multiple packets
-    - [ ] Test common algorithms (CRC-16, CRC-32, XOR, simple sum)
-    - [ ] Identify CRC polynomial and parameters if applicable
-    - [ ] Implement checksum calculation in Python
-  - [ ] **Create protocol specification document**: Document findings in `docs/PMR171_UART_PROTOCOL.md`
-  - [ ] **Build packet examples**: Create annotated hex dumps showing packet structure
+- [x] **UART Serial Transaction Analysis**: ✅ COMPLETE - Protocol fully reverse engineered (Jan 19, 2026)
+  - **Documentation**: See `docs/UART_Reverse_Engineering_Report.md`
+  - [x] Packet structure decoded: 4-byte header (0xA5A5A5A5) + length + command + payload + CRC-16
+  - [x] Command codes identified: 0x41 (read), 0x40 (write), 0x27 (identity), etc.
+  - [x] CRC-16-CCITT algorithm implemented (polynomial 0x1021, initial 0xFFFF)
+  - [x] Channel data structure mapped: 26 bytes (index, modes, frequencies, CTCSS, name)
+  - [x] Communication parameters: 115200 baud, 8N1, DTR=HIGH, RTS=HIGH
+  - [x] Programming sequence documented with timing considerations
+  - [x] Python implementation complete in `pmr_171_cps/radio/pmr171_uart.py`
+  - **Captured data archived**: UART transaction logs in `tests/test_configs/Results/*.spm`
 
 - [x] **Direct PMR-171 programming via UART**: ✅ COMPLETE (January 19, 2026)
   - [x] Implemented Python UART communication (pyserial library)
@@ -174,7 +119,7 @@ This document tracks planned features, enhancements, and known issues for the PM
   - **Location**: `docs/UART_Reverse_Engineering_Report.md`
   - **Format**: Markdown optimized for document/PowerPoint conversion
 
-- [ ] **Icon Generation Writeup**: Document the custom icon creation process (✅ Created: `docs/Icon_Generation.md`)
+- [x] **Icon Generation Writeup**: ✅ COMPLETE - Document the custom icon creation process (See: `docs/Icon_Generation.md`)
   - [x] Icon design rationale and visual elements
   - [x] Pillow/PIL generation script explanation
   - [x] Multi-resolution icon generation (16px to 256px)
@@ -195,7 +140,16 @@ This document tracks planned features, enhancements, and known issues for the PM
 ## Low Priority / Nice to Have
 
 - [x] **Undo/Redo**: Implement edit history for reverting changes (Jan 2026)
-- [ ] **Channel zones/groups**: Organize channels into user-defined groups
+- [ ] **Channel zones/groups**: Artificial zone scheme for logical channel organization
+  - Channels assigned to zones with automatic memory slot indexing
+  - Zone start indices at multiples of 10, 100, or user-defined value
+    - Example: Zone 1 = channels 0-9, Zone 2 = channels 10-19, Zone 3 = channels 100-199
+  - Allows mentally bookmarked groups based on leading digit(s)
+  - Implementation: Custom JSON fields added to existing format
+    - `zoneNumber`: Zone assignment (1, 2, 3, etc.)
+    - `channelInZone`: Channel index within zone (0-9, 0-99, etc.)
+  - **Not a radio function** - CPS-only feature for organization
+  - **Compatibility testing needed**: Test if Guohetec utility ignores unrecognized JSON fields (may strip on load/save)
 - [ ] **Import/Export presets**: Save and load channel configurations
 - [x] **Frequency calculator**: Repeater offset calculator and tone lookup
 - [x] **Automatic frequency formatting**: Format frequency inputs to standard MHz precision (XXX.XXXXXX) with live tree view updates (Jan 2026)
@@ -280,200 +234,20 @@ This allows:
 - **Tree Item Selection**: Use `tags=(ch_id,)` to map tree items back to channel IDs
 - **Rebuild Performance**: Full tree rebuild is fast enough (<50ms for 100 channels)
 
-### UART Programming Implementation Plan
+### UART Protocol Summary (✅ COMPLETE)
 
-#### Phase 1: Protocol Research & Discovery
-1. **Documentation Review**
-   - [ ] Search for PMR-171 service manual or programming documentation
-   - [ ] Check manufacturer website for SDK or programming cable specs
-   - [ ] Review FCC filings for technical details
-   - [ ] Search online forums (RadioReference, QRZ, etc.) for protocol information
+The UART programming protocol has been fully reverse engineered and documented. See `docs/UART_Reverse_Engineering_Report.md` for complete technical details.
 
-2. **Hardware Setup**
-   - [ ] Acquire PMR-171 programming cable (USB/UART adapter)
-   - [ ] Identify cable pinout (TX, RX, GND, power)
-   - [ ] Test cable with factory programming software
-   - [ ] Document cable specifications (chipset, voltage levels)
+**Quick Reference:**
+- **Connection**: 115200 baud, 8N1, DTR=HIGH, RTS=HIGH
+- **Packet Format**: `[A5 A5 A5 A5] [Length] [Command] [Payload] [CRC-16]`
+- **Commands**: 0x41 (read), 0x40 (write), 0x27 (identity)
+- **CRC**: CRC-16-CCITT, polynomial 0x1021, initial 0xFFFF
+- **Channel Data**: 26 bytes per channel
 
-3. **Packet Capture & Analysis**
-   - [ ] **Option A: Software Interception**
-     - Install Wireshark or similar packet capture tool
-     - Monitor USB/COM port during factory software operation
-     - Capture full programming session (read + write operations)
-   - [ ] **Option B: Hardware Interception**
-     - Use logic analyzer (Saleae Logic, DSLogic, etc.)
-     - Connect to UART TX/RX lines between cable and radio
-     - Capture at multiple baud rates (9600, 19200, 38400, 57600, 115200)
-     - Record timing diagrams and signal levels
-   - [ ] **Capture Scenarios**:
-     - Radio identification/handshake
-     - Full codeplug read
-     - Single channel read
-     - Full codeplug write
-     - Single channel write
-     - Verify operation
-     - Error conditions
-
-4. **Protocol Analysis**
-   - [ ] Identify communication parameters:
-     - Baud rate (test common rates)
-     - Data bits (typically 8)
-     - Parity (None, Even, Odd)
-     - Stop bits (1 or 2)
-     - Flow control (None, RTS/CTS, XON/XOFF)
-   - [ ] Analyze packet structure:
-     - Header format (start bytes, sync patterns)
-     - Command codes (read, write, verify, etc.)
-     - Address/memory location format
-     - Data payload format
-     - Checksum/CRC algorithm (CRC-16, CRC-32, simple sum, XOR)
-     - Footer/terminator bytes
-   - [ ] Document command set:
-     - Initialization/handshake commands
-     - Read commands (single byte, block read)
-     - Write commands (single byte, block write)
-     - Radio info query (model, firmware version, serial number)
-     - Memory map structure
-   - [ ] Reverse engineer checksums:
-     - Test with modified packets
-     - Identify algorithm (CRC polynomial, initial value, XOR out)
-     - Implement checksum calculation in Python
-
-#### Phase 2: Protocol Implementation
-1. **Python Serial Communication Setup**
-   - [ ] Add `pyserial` to requirements.txt
-   - [ ] Create `uart_interface.py` module
-   - [ ] Implement serial port detection and enumeration
-   - [ ] Add connection error handling (timeouts, disconnects)
-   - [ ] Implement packet framing (start/stop detection)
-   - [ ] Add logging for debugging (hex dump of all packets)
-
-2. **Low-Level Protocol Functions**
-   - [ ] Implement checksum calculation
-   - [ ] Create packet builder (header + data + checksum)
-   - [ ] Create packet parser (validate and extract data)
-   - [ ] Add retry logic for failed commands
-   - [ ] Implement timeouts and error recovery
-
-3. **Radio Communication Commands**
-   - [ ] Radio identification/handshake
-   - [ ] Query radio info (model, firmware version)
-   - [ ] Read memory block (with address and length)
-   - [ ] Write memory block (with verification)
-   - [ ] Read full codeplug
-   - [ ] Write full codeplug
-   - [ ] Verify codeplug after write
-
-#### Phase 3: Hardware-in-the-Loop Testing
-1. **Test Equipment Setup**
-   - [ ] Connect PMR-171 radio via programming cable
-   - [ ] Set up test environment with known good codeplug
-   - [ ] Create backup of original radio configuration
-   - [ ] Document radio serial number and firmware version
-
-2. **Read Operation Testing**
-   - [ ] Test radio identification
-   - [ ] Read single memory location
-   - [ ] Read memory block (small, then progressively larger)
-   - [ ] Read full codeplug
-   - [ ] Compare read data with factory software backup
-   - [ ] Verify data integrity (checksums, format)
-
-3. **Write Operation Testing (Critical - Start Small!)**
-   - [ ] **Safety First**: 
-     - Test on non-critical memory (scratch area if available)
-     - Always backup before writing
-     - Never write to bootloader or calibration areas
-   - [ ] Write single byte to test area
-   - [ ] Read back and verify
-   - [ ] Write single channel data
-   - [ ] Read back and verify channel works on radio
-   - [ ] Write full codeplug (after extensive read testing)
-   - [ ] Verify radio functionality after write
-
-4. **Edge Case Testing**
-   - [ ] Test with empty channels
-   - [ ] Test with maximum channel count
-   - [ ] Test with long channel names
-   - [ ] Test with split frequencies (RX ≠ TX)
-   - [ ] Test with all modes (FM, AM, SSB, DMR, etc.)
-   - [ ] Test with CTCSS/DCS tones
-   - [ ] Test error recovery (disconnect during write, corrupt data)
-
-#### Phase 4: GUI Integration
-1. **Programming Interface**
-   - [ ] Add "Program Radio" menu item
-   - [ ] Create COM port selection dialog
-   - [ ] Add "Read from Radio" button with progress bar
-   - [ ] Add "Write to Radio" button with confirmation dialog
-   - [ ] Implement "Compare Radio vs File" diff view
-   - [ ] Add "Backup Radio" quick save function
-
-2. **Safety Features**
-   - [ ] Warn before overwriting radio
-   - [ ] Require user confirmation for write operations
-   - [ ] Validate codeplug before writing (frequency ranges, field values)
-   - [ ] Show summary of changes before writing
-   - [ ] Create automatic backup before each write
-   - [ ] Implement write verification with retry on failure
-
-3. **User Experience**
-   - [ ] Real-time progress indicators
-   - [ ] Clear error messages (with troubleshooting hints)
-   - [ ] Connection status indicator
-   - [ ] Programming log viewer (for debugging)
-   - [ ] Cancel operation support (safe abort)
-
-#### Phase 5: Documentation & Validation
-1. **Protocol Documentation**
-   - [ ] Create protocol specification document
-   - [ ] Document all command codes and responses
-   - [ ] Create memory map diagram
-   - [ ] Document checksum algorithm with examples
-   - [ ] Add packet format diagrams
-
-2. **User Documentation**
-   - [ ] Write programming guide
-   - [ ] Document cable requirements
-   - [ ] Create troubleshooting guide
-   - [ ] Add FAQ section
-   - [ ] Include video tutorial
-
-3. **Testing & Validation**
-   - [ ] Test on multiple PMR-171 radios (different firmware versions)
-   - [ ] Verify with community testers
-   - [ ] Create automated test suite for protocol functions
-   - [ ] Document any limitations or known issues
-
-#### Tools & Resources Needed
-- **Hardware**:
-  - PMR-171 radio (primary test unit)
-  - PMR-171 programming cable (USB-UART adapter)
-  - Optional: Spare PMR-171 for destructive testing
-  - Optional: Logic analyzer (Saleae Logic 8, DSLogic Plus, etc.)
-  - Optional: USB protocol analyzer
-  
-- **Software**:
-  - Factory programming software (for packet capture)
-  - Wireshark or similar packet capture tool
-  - Logic analyzer software (Saleae Logic, sigrok/PulseView)
-  - Python with pyserial library
-  - Hex editor (HxD, 010 Editor)
-  
-- **Documentation**:
-  - Service manual (if available)
-  - Programming cable pinout
-  - Known good codeplug files (from D:\Radio\Guohetec)
-
-#### Risk Mitigation
-- **CRITICAL**: Always backup radio before any write operations
-- **CRITICAL**: Never write to bootloader or calibration areas without documentation
-- **CRITICAL**: Verify checksums before writing to prevent bricking
-- Start with read-only operations until protocol is fully understood
-- Test on non-critical memory areas first
-- Keep factory programming software available as fallback
-- Document recovery procedures in case of programming failure
-- Consider having a spare radio for testing risky operations
+**Implementation Files:**
+- `pmr_171_cps/radio/pmr171_uart.py` - Python UART implementation
+- `tests/test_uart_read_write_verify.py` - Validation test script
 
 ### CSV Export Considerations
 - Map PMR-171 fields to human-readable column names
@@ -484,6 +258,25 @@ This allows:
 ---
 
 ## Session History
+
+### January 20, 2026 (Afternoon Session)
+- **Focus**: TODO cleanup and status review
+- **Accomplishments**:
+  - Updated TODO.md with current project status
+  - Fixed Icon Generation Writeup status (all items complete → marked ✅ COMPLETE)
+  - Marked UART Serial Transaction Analysis as ✅ COMPLETE (documented in UART_Reverse_Engineering_Report.md)
+  - Updated last modified date
+- **Project Status Summary** (All High Priority Items Complete!):
+  - CTCSS Tone Encoding: ✅ VALIDATED AND PRODUCTION READY
+  - UART Serial Transaction Analysis: ✅ COMPLETE (protocol fully reverse engineered)
+  - Direct UART Programming: ✅ COMPLETE AND FUNCTIONAL
+  - JSON Format Validation: ✅ COMPLETE (24 tests passing)
+  - GUI Features: ✅ COMPLETE (filters, bulk ops, undo/redo, icons)
+  - Documentation: ✅ COMPLETE (UART Report, Icon Generation, Protocol docs)
+- **Remaining Work**:
+  - Minor: Update callFormat=2 for digital channels
+  - Backburner: DCS encoding (pending firmware support)
+  - Low priority: Channel zones/groups, presets, auto-programming
 
 ### January 19, 2026 (Early Morning Session)
 - **Focus**: TODO cleanup and UART GUI testing
@@ -596,6 +389,10 @@ This allows:
   - GUI integration with Radio menu (Read/Write to Radio)
   - Verified with test script: `tests/test_uart_read_write_verify.py`
   - 5/5 channels passed validation
+- [x] **Progress indicators for radio operations** (Jan 2026)
+  - Progress bar dialog with Cancel button
+  - Real-time status updates during read/write
+  - Implemented in `_create_progress_dialog()` method
 
 ---
 
@@ -603,4 +400,4 @@ This allows:
 
 *Use this file to track development tasks and ideas. Move completed items to the "Completed Items" section with completion date.*
 
-Last Updated: January 19, 2026
+Last Updated: January 20, 2026

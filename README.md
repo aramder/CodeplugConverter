@@ -29,9 +29,9 @@ While these are relatively straightforward engineering tasks individually, they 
 
 ---
 
-## 📻 What is PMR-171 CPS?
+## 📻 What is the PMR-171 CPS?
 
-PMR-171 CPS is a **Channel Programming Software** for the Guohetec PMR-171 wideband handheld transceiver. It provides:
+PMR-171 CPS is a **Customer Programming Software** for the Guohetec PMR-171. It provides:
 
 ### Core CPS Features
 
@@ -227,10 +227,10 @@ PMR_171_CPS/
 - [x] Multi-mode support (NFM, AM, USB, LSB, DMR)
 - [x] 24 automated format validation tests
 - [x] Hardware-in-the-loop testing
+- [x] Progress indicators for radio operations (with Cancel button)
 
 ### Remaining
 - [ ] DCS tone support (pending firmware)
-- [ ] Progress indicators for radio operations
 - [ ] Channel zones/groups
 - [ ] Repeater database integration
 
@@ -262,4 +262,4 @@ Contributions welcome! This project demonstrates AI-assisted development:
 
 ---
 
-*Last Updated: January 19, 2026*
+*Last Updated: January 20, 2026*
