@@ -50,7 +50,8 @@ PMR-171 CPS is a **Customer Programming Software** for the Guohetec PMR-171. It 
 | **GUI Editor** | ✅ Complete | Professional channel editor with Motorola ASTRO 25 styling |
 | **UART Programming** | ✅ Complete | Direct read/write to radio without manufacturer software |
 | **CTCSS Tones** | ✅ Complete | All 50 standard tones mapped and validated |
-| **Multi-Mode** | ✅ Complete | NFM, WFM, AM, USB, LSB, CW, DMR support |
+| **Analog Modes** | ✅ Complete | NFM, WFM, AM, USB, LSB, CW support |
+| **DMR Digital** | 🔧 In Progress | Functional but display mode (DMR vs DFM) under investigation |
 | **CSV Import/Export** | ✅ Complete | Import/export for spreadsheet analysis |
 | **DCS Tones** | ⏸️ Pending | Awaiting radio firmware support |
 
@@ -61,7 +62,7 @@ PMR-171 CPS is a **Customer Programming Software** for the Guohetec PMR-171. It 
 - **Bulk Operations**: Multi-select, delete, duplicate, move channels
 - **Undo/Redo**: Full edit history with Ctrl+Z/Ctrl+Y
 - **Validation**: Warnings for out-of-band frequencies and invalid settings
-- **DMR Support**: Color code, timeslot, and DMR ID configuration
+- **DMR Support**: Color code, timeslot, and DMR ID configuration *(display mode investigation in progress)*
 
 ### Direct Radio Programming
 
@@ -235,10 +236,13 @@ PMR_171_CPS/
 - [x] Direct UART read/write to radio
 - [x] Complete CTCSS tone mapping (50 tones)
 - [x] CSV import/export
-- [x] Multi-mode support (NFM, AM, USB, LSB, DMR)
+- [x] Multi-mode support (NFM, AM, USB, LSB)
 - [x] 24 automated format validation tests
 - [x] Hardware-in-the-loop testing
 - [x] Progress indicators for radio operations (with Cancel button)
+
+### In Progress 🔧
+- [ ] **DMR Digital Mode**: Core functionality works (Color Codes, IDs, Slots, Call Types all functional), but radio displays "DFM" instead of "DMR" on some channels. Investigation ongoing to identify the field controlling the display mode. See [DMR Display Investigation](docs/DMR_Display_Investigation.md).
 
 ### Remaining
 - [ ] DCS tone support (pending firmware)
@@ -273,4 +277,4 @@ Contributions welcome! This project demonstrates AI-assisted development:
 
 ---
 
-*Last Updated: January 20, 2026*
+*Last Updated: January 21, 2026*
