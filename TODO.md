@@ -61,14 +61,16 @@ This document tracks planned features, enhancements, and known issues for the PM
   - [x] Python implementation complete in `pmr_171_cps/radio/pmr171_uart.py`
   - **Captured data archived**: UART transaction logs in `tests/test_configs/Results/*.spm`
 
-- [x] **Direct PMR-171 programming via UART**: ✅ COMPLETE (January 19, 2026)
+- [ ] **Direct PMR-171 programming via UART**: IN PROGRESS (January 19-21, 2026)
   - [x] Implemented Python UART communication (pyserial library)
   - [x] Added "Program Radio" menu option with COM port selection
   - [x] Included read/backup functionality to pull existing config from radio
   - [x] Error handling and validation before writing to radio
+  - [ ] **DMR Display Mode Issue**: DMR vs DFM label not controlled by known fields (See Known Issues)
   - **Location**: `pmr_171_cps/radio/pmr171_uart.py`
   - **GUI Integration**: Radio menu with Read/Write to Radio options
   - **Test Script**: `tests/test_uart_read_write_verify.py`
+  - **Status**: Analog channels work perfectly; DMR channels functional but display as "DFM"
 
 - [x] **UART Verification Test Script**: ✅ COMPLETE AND VALIDATED (January 19, 2026)
   - **Location**: `tests/test_uart_read_write_verify.py`
@@ -159,6 +161,31 @@ This document tracks planned features, enhancements, and known issues for the PM
 ---
 
 ## Known Issues / Bugs
+
+### DMR Display Mode Label (Functionality Issue)
+**Issue**: DMR channels display as "DFM" instead of "DMR" on radio screen, despite correct functionality
+- **Discovered**: January 21, 2026 during DMR programming testing
+- **Location**: Radio display screen - affects visual label only, not actual DMR functionality
+- **Impact**: **COSMETIC** - All DMR features work correctly (Color Codes, IDs, Slots, Call Types)
+  - `callFormat` field correctly controls call types (Private/Group/All) ✅
+  - Color Codes, DMR IDs, Timeslots all function properly ✅
+  - Only the "DMR" vs "DFM" display label is incorrect
+- **Investigation Status**:
+  - Tested multiple field combinations: callFormat, chType, callId, etc.
+  - Compared 3 readback files from test uploads and manual configuration
+  - Field controlling display mode has **NOT been identified**
+  - Appears to be independent of all currently mapped fields
+- **Next Steps**: 
+  - **UART serial analysis required** - Capture communication when manually toggling DMR ↔ DFM
+  - Compare byte-level differences in channel data packets
+  - Look for unmapped fields in channel structure
+  - May be global setting rather than per-channel field
+- **Workaround**: None needed - DMR functionality is correct, label is cosmetic
+- **Documentation**: See `docs/DMR_Display_Investigation.md` for complete investigation details
+- **Related Files**: 
+  - Test config: `tests/test_configs/12_dmr_color_code_test.json`
+  - Readbacks: `radio_readback_260120_*.json`, `radio_readback_260121_0037.json`
+- **Priority**: LOW - Functionality works; requires UART capture tools for resolution
 
 ### Status Bar Border (Visual Issue)
 **Issue**: Status bar lacks a defined border at the top, creating a soft transition that doesn't look professional
@@ -400,4 +427,4 @@ The UART programming protocol has been fully reverse engineered and documented. 
 
 *Use this file to track development tasks and ideas. Move completed items to the "Completed Items" section with completion date.*
 
-Last Updated: January 20, 2026
+Last Updated: January 21, 2026
