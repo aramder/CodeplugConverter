@@ -1,10 +1,20 @@
-# PMR-171 CPS (Channel Programming Software)
-
-**An AI-Developed Programming Software for the Guohetec PMR-171 Handheld Radio**
+# PMR-171 CPS (Customer Programming Software)
 
 [![AI Written](https://img.shields.io/badge/Code-100%25%20AI%20Written-blue)](#ai-development)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-green.svg)](https://python.org)
 [![License](https://img.shields.io/badge/License-Polyform%20NC-orange.svg)](LICENSE)
+
+---
+
+## Project Goals
+
+This repository serves three purposes:
+
+1. **Reverse Engineering** — Document the undocumented UART programming protocol of the Guohetec PMR-171 handheld radio, including packet structure, command codes, checksum algorithms, and CTCSS tone encoding.
+
+2. **Customer Programming Software (CPS)** — Develop an open-source alternative to the manufacturer's proprietary programming software, providing a professional GUI for channel programming with direct radio read/write capability.
+
+3. **AI-Assisted Development Experiment** — Demonstrate the use of AI tools for hardware reverse engineering tasks, with 100% of the code, tests, and documentation written by AI.
 
 ---
 
