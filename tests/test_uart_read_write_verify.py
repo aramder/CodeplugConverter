@@ -189,7 +189,22 @@ TEST_NAMES = [
 TEST_CTCSS_INDICES = [0, 1, 10, 19, 25, 38, 50, 55]  # Off + various tones
 
 # Test modes
-TEST_MODES = [Mode.NFM, Mode.AM, Mode.USB, Mode.LSB, Mode.WFM]
+TEST_MODES = [Mode.NFM, Mode.AM, Mode.USB, Mode.LSB, Mode.WFM, Mode.DMR]
+
+# DMR Color Codes (0-15) - test all 16 possible values
+DMR_COLOR_CODES = list(range(16))  # 0, 1, 2, ... 15
+
+# DMR Timeslots
+DMR_TIMESLOTS = [1, 2]
+
+# Test DMR IDs
+TEST_DMR_IDS = [
+    (0, 0),              # No IDs
+    (1234567, 9),        # Private call to ID 9
+    (3106001, 91),       # TG91 (worldwide)
+    (3106001, 310),      # Local TG
+    (16777215, 16777215) # Max values
+]
 
 
 def generate_test_data(original: ChannelData, test_id: int) -> ChannelData:
@@ -224,6 +239,16 @@ def generate_test_data(original: ChannelData, test_id: int) -> ChannelData:
     # Generate test mode
     test_mode = TEST_MODES[mode_idx]
     
+    # DMR-specific fields
+    # Test all 16 color codes (0-15) by cycling through based on test_id
+    test_rx_cc = DMR_COLOR_CODES[test_id % len(DMR_COLOR_CODES)]
+    test_tx_cc = DMR_COLOR_CODES[(test_id + 1) % len(DMR_COLOR_CODES)]  # Offset by 1 to test different values
+    test_slot = DMR_TIMESLOTS[test_id % len(DMR_TIMESLOTS)]
+    
+    # DMR IDs
+    dmr_id_idx = test_id % len(TEST_DMR_IDS)
+    test_own_id, test_call_id = TEST_DMR_IDS[dmr_id_idx]
+    
     return ChannelData(
         index=original.index,
         rx_mode=test_mode,
@@ -232,7 +257,13 @@ def generate_test_data(original: ChannelData, test_id: int) -> ChannelData:
         tx_freq_hz=test_tx_freq,
         rx_ctcss_index=test_rx_ctcss,
         tx_ctcss_index=test_tx_ctcss,
-        name=test_name
+        name=test_name,
+        # DMR-specific fields (always set, even for analog - radio may ignore)
+        rx_cc=test_rx_cc,
+        tx_cc=test_tx_cc,
+        slot=test_slot,
+        own_id=test_own_id,
+        call_id=test_call_id
     )
 
 
@@ -245,13 +276,19 @@ def channel_to_hex(channel: ChannelData) -> str:
     data = channel.to_dict()
     hex_parts = []
     hex_parts.append(f"Index: {channel.index:04X}")
-    hex_parts.append(f"RX Mode: {channel.rx_mode:02X}")
-    hex_parts.append(f"TX Mode: {channel.tx_mode:02X}")
+    hex_parts.append(f"RX Mode: {channel.rx_mode:02X} ({channel.rx_mode_name})")
+    hex_parts.append(f"TX Mode: {channel.tx_mode:02X} ({channel.tx_mode_name})")
     hex_parts.append(f"RX Freq: {channel.rx_freq_hz:08X} ({channel.rx_freq_mhz:.6f} MHz)")
     hex_parts.append(f"TX Freq: {channel.tx_freq_hz:08X} ({channel.tx_freq_mhz:.6f} MHz)")
     hex_parts.append(f"RX CTCSS: {channel.rx_ctcss_index:02X} ({channel.rx_ctcss_hz or 'Off'})")
     hex_parts.append(f"TX CTCSS: {channel.tx_ctcss_index:02X} ({channel.tx_ctcss_hz or 'Off'})")
     hex_parts.append(f"Name: '{channel.name}' ({channel.name.encode('ascii', errors='replace').hex()})")
+    # DMR-specific fields
+    hex_parts.append(f"RX CC: {channel.rx_cc:02X} (Color Code {channel.rx_cc})")
+    hex_parts.append(f"TX CC: {channel.tx_cc:02X} (Color Code {channel.tx_cc})")
+    hex_parts.append(f"Slot: {channel.slot} (TS{channel.slot})")
+    hex_parts.append(f"Own ID: {channel.own_id:08X} ({channel.own_id})")
+    hex_parts.append(f"Call ID: {channel.call_id:08X} ({channel.call_id})")
     return "\n".join(hex_parts)
 
 

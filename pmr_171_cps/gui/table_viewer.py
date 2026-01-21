@@ -104,12 +104,43 @@ class ChannelTableViewer:
     
     # Standard CTCSS/PL tones in Hz
     CTCSS_TONES = [
-        "67.0", "71.9", "74.4", "77.0", "79.7", "82.5", "85.4", "88.5", "91.5",
+        "67.0", "69.3", "71.9", "74.4", "77.0", "79.7", "82.5", "85.4", "88.5", "91.5",
         "94.8", "97.4", "100.0", "103.5", "107.2", "110.9", "114.8", "118.8",
         "123.0", "127.3", "131.8", "136.5", "141.3", "146.2", "151.4", "156.7",
-        "162.2", "167.9", "173.8", "179.9", "186.2", "192.8", "203.5", "210.7",
-        "218.1", "225.7", "233.6", "241.8", "250.3"
+        "159.8", "162.2", "165.5", "167.9", "171.3", "173.8", "177.3", "179.9",
+        "183.5", "186.2", "189.9", "192.8", "196.6", "199.5", "203.5", "206.5",
+        "210.7", "218.1", "225.7", "229.1", "233.6", "241.8", "250.3", "254.1"
     ]
+    
+    # Complete CTCSS frequency to yayin mapping table (all 50 standard tones)
+    # Source: Test 10 results - validated January 18, 2026
+    # IMPORTANT: Radio uses emitYayin/receiveYayin, NOT txCtcss/rxCtcss!
+    CTCSS_TO_YAYIN = {
+        67.0: 1,   69.3: 2,   71.9: 3,   74.4: 4,   77.0: 5,   
+        79.7: 6,   82.5: 7,   85.4: 8,   88.5: 9,   91.5: 10,
+        94.8: 11,  97.4: 12,  100.0: 13, 103.5: 14, 107.2: 15,
+        110.9: 16, 114.8: 17, 118.8: 18, 123.0: 19, 127.3: 20,
+        131.8: 21, 136.5: 22, 141.3: 23, 146.2: 24, 151.4: 26,
+        156.7: 27, 159.8: 28, 162.2: 29, 165.5: 30, 167.9: 31,
+        171.3: 32, 173.8: 33, 177.3: 34, 179.9: 35, 183.5: 36,
+        186.2: 37, 189.9: 38, 192.8: 39, 196.6: 40, 199.5: 41,
+        203.5: 42, 206.5: 43, 210.7: 44, 218.1: 46, 225.7: 48,
+        229.1: 49, 233.6: 50, 241.8: 52, 250.3: 54, 254.1: 55
+    }
+    
+    # Reverse mapping for reading from radio (yayin index -> frequency in Hz)
+    YAYIN_TO_CTCSS = {
+        1: 67.0,  2: 69.3,  3: 71.9,  4: 74.4,  5: 77.0,
+        6: 79.7,  7: 82.5,  8: 85.4,  9: 88.5,  10: 91.5,
+        11: 94.8, 12: 97.4, 13: 100.0, 14: 103.5, 15: 107.2,
+        16: 110.9, 17: 114.8, 18: 118.8, 19: 123.0, 20: 127.3,
+        21: 131.8, 22: 136.5, 23: 141.3, 24: 146.2, 26: 151.4,
+        27: 156.7, 28: 159.8, 29: 162.2, 30: 165.5, 31: 167.9,
+        32: 171.3, 33: 173.8, 34: 177.3, 35: 179.9, 36: 183.5,
+        37: 186.2, 38: 189.9, 39: 192.8, 40: 196.6, 41: 199.5,
+        42: 203.5, 43: 206.5, 44: 210.7, 46: 218.1, 48: 225.7,
+        49: 229.1, 50: 233.6, 52: 241.8, 54: 250.3, 55: 254.1
+    }
     
     # Standard DCS codes - D###N followed by D###R
     _DCS_BASE = [
@@ -198,22 +229,74 @@ class ChannelTableViewer:
     @staticmethod
     def ctcss_dcs_from_value(value: int) -> str:
         """Convert CTCSS/DCS value to display string"""
-        if value == 0:
+        # Treat 0 and 255 as Off (255 is uninitialized/invalid value)
+        if value == 0 or value == 255:
             return "Off"
-        elif value >= 1000:
-            # CTCSS tone
+        elif value >= 670:
+            # CTCSS tone (670 = 67.0 Hz minimum)
             return f"{value / 10:.1f}"
         else:
-            # DCS code
+            # DCS code (values < 670)
             return str(value)
+    
+    def _yayin_to_display(self, yayin_value: int) -> str:
+        """Convert yayin (tone index) value to CTCSS frequency display string
+        
+        PMR-171 uses emitYayin/receiveYayin fields for CTCSS tones.
+        The yayin value is an index into the radio's internal tone table.
+        
+        Args:
+            yayin_value: Integer value from emitYayin or receiveYayin field
+            
+        Returns:
+            Display string matching dropdown options (e.g., "Off", "100.0")
+        """
+        if yayin_value == 0:
+            return "Off"
+        
+        # Look up frequency in the validated mapping
+        freq = self.YAYIN_TO_CTCSS.get(yayin_value)
+        if freq is not None:
+            return f"{freq:.1f}"
+        
+        # Unknown yayin value - return raw for debugging
+        return f"yayin:{yayin_value}"
+    
+    def _display_to_yayin(self, display_str: str) -> int:
+        """Convert display string to yayin (tone index) value
+        
+        Args:
+            display_str: String like "Off", "100.0", etc.
+            
+        Returns:
+            yayin value for emitYayin/receiveYayin field
+        """
+        if not display_str or display_str.lower() == 'off':
+            return 0
+        
+        # Try to parse as CTCSS frequency
+        try:
+            freq = float(display_str)
+            freq = round(freq, 1)  # Round to 1 decimal for lookup
+            yayin = self.CTCSS_TO_YAYIN.get(freq)
+            if yayin is not None:
+                return yayin
+        except ValueError:
+            pass
+        
+        # TODO: Add DCS support when mapping is complete
+        return 0
     
     def _ctcss_value_to_display(self, value: int) -> str:
         """Convert CTCSS/DCS integer value to dropdown-compatible display string
         
-        PMR-171 format:
+        PMR-171 format (LEGACY - rxCtcss/txCtcss fields are IGNORED by radio):
         - 0 = Off
+        - 255 = Off (uninitialized/invalid)
         - 670-2503 = CTCSS tone (value / 10 = Hz, e.g., 1000 = 100.0 Hz)
         - DCS codes stored differently
+        
+        NOTE: Use _yayin_to_display() for the correct emitYayin/receiveYayin fields!
         
         Args:
             value: Integer value from channel data
@@ -221,7 +304,8 @@ class ChannelTableViewer:
         Returns:
             Display string matching dropdown options (e.g., "Off", "100.0", "D023N")
         """
-        if value == 0:
+        # Treat 0 and 255 as Off (255 is uninitialized/invalid value)
+        if value == 0 or value == 255:
             return "Off"
         elif 670 <= value <= 2503:
             # CTCSS tone - convert to Hz string
@@ -623,6 +707,9 @@ class ChannelTableViewer:
             def progress_callback(current, total, message):
                 progress_dialog['var'].set(current)
                 progress_dialog['label'].config(text=message)
+                # Update progress info with x/y and percentage
+                percentage = int((current / total) * 100) if total > 0 else 0
+                progress_dialog['progress_info_var'].set(f"{current} of {total} channels ({percentage}%)")
                 progress_dialog['dialog'].update()
             
             def cancel_check():
@@ -852,47 +939,36 @@ class ChannelTableViewer:
         selected_ids = self._get_selected_channel_ids()
         selected_count = len(selected_ids)
         
-        # Determine write mode
-        if selected_count > 0:
-            # Selective write
-            result = messagebox.askyesnocancel(
-                "Write Mode",
-                f"You have {selected_count} channels selected for writing.\n\n"
-                "Yes = Write only selected channels\n"
-                "No = Write ALL channels in codeplug\n"
-                "Cancel = Abort",
-                parent=self.root
-            )
-            if result is None:
-                return
-            write_selected_only = result
-        else:
-            # No selection - write all
-            programmed = sum(1 for ch in self.channels.values() 
-                            if ch.get('vfoaMode', 255) != 255)
-            result = messagebox.askyesno(
-                "Confirm Write",
-                f"Write all {len(self.channels)} channels ({programmed} programmed) to radio on {port}?\n\n"
-                "⚠️ WARNING: This will overwrite channels on the radio!\n\n"
-                "Make sure:\n"
-                "• The radio is connected and powered on\n"
-                "• You have a backup of your current radio configuration\n"
-                "• The channel data has been validated\n\n"
-                "Tip: Use the selection tools to write specific channels only.",
-                parent=self.root
-            )
-            if not result:
-                return
-            write_selected_only = False
+        # Show write options dialog
+        write_options = self._show_write_options_dialog(selected_count)
+        if not write_options:
+            return
         
-        # Build list of channels to write
-        if write_selected_only:
+        write_mode = write_options['write_mode']
+        
+        # Build list of channels to write based on mode
+        if write_mode == 'selected':
             channels_to_write = []
             for ch_id in selected_ids:
                 if ch_id in self.channels:
                     channels_to_write.append(ChannelData.from_dict(self.channels[ch_id]))
             total_channels = len(channels_to_write)
-        else:
+        elif write_mode == 'programmed':
+            # Write only channels with non-empty names (programmed channels)
+            channels_to_write = []
+            for ch_id, ch_data in sorted(self.channels.items(), key=lambda x: int(x[0]) if x[0].isdigit() else 0):
+                ch_name = ch_data.get('channelName', '').rstrip('\u0000').strip()
+                if ch_name:  # Only include channels with names
+                    channels_to_write.append(ChannelData.from_dict(ch_data))
+            total_channels = len(channels_to_write)
+        elif write_mode == 'first50':
+            channels_to_write = []
+            for ch_num in range(50):
+                ch_id = str(ch_num)
+                if ch_id in self.channels:
+                    channels_to_write.append(ChannelData.from_dict(self.channels[ch_id]))
+            total_channels = len(channels_to_write)
+        else:  # 'all'
             channels_to_write = codeplug_to_channels(self.channels)
             total_channels = len(channels_to_write)
         
@@ -906,6 +982,9 @@ class ChannelTableViewer:
             def progress_callback(current, total, message):
                 progress_dialog['var'].set(current)
                 progress_dialog['label'].config(text=message)
+                # Update progress info with x/y and percentage
+                percentage = int((current / total) * 100) if total > 0 else 0
+                progress_dialog['progress_info_var'].set(f"{current} of {total} channels ({percentage}%)")
                 progress_dialog['dialog'].update()
             
             def cancel_check():
@@ -928,10 +1007,9 @@ class ChannelTableViewer:
                     parent=self.root
                 )
             else:
-                mode_str = "selected" if write_selected_only else "total"
                 messagebox.showinfo(
                     "Write Complete",
-                    f"Successfully wrote {success_count} of {total_channels} {mode_str} channels to radio.",
+                    f"Successfully wrote {success_count} of {total_channels} channels to radio.",
                     parent=self.root
                 )
             self.status_label.config(text=f"Wrote {success_count} channels to radio")
@@ -1023,10 +1101,14 @@ class ChannelTableViewer:
         port_listbox.bind('<Return>', lambda e: on_ok())
         dialog.bind('<Return>', lambda e: on_ok())
         
-        ttk.Button(button_frame, text="Connect", command=on_ok, width=12).pack(side=tk.LEFT, padx=5)
+        connect_btn = ttk.Button(button_frame, text="Connect", command=on_ok, width=12)
+        connect_btn.pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Cancel", command=on_cancel, width=12).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Refresh", 
                   command=lambda: self._refresh_port_list(port_listbox, ports), width=12).pack(side=tk.RIGHT, padx=5)
+        
+        # Set initial focus to Connect button so Enter key works
+        connect_btn.focus_set()
         
         # Center dialog
         dialog.update_idletasks()
@@ -1091,7 +1173,7 @@ class ChannelTableViewer:
         if selected_count > 0:
             default_range = 'selected'
         else:
-            default_range = 'first50'  # Default to first 50 for faster reads
+            default_range = 'all'  # Default to all channels when none selected
         
         range_var = tk.StringVar(value=default_range)
         
@@ -1113,16 +1195,6 @@ class ChannelTableViewer:
         # Disable selected option if no channels are selected
         if selected_count == 0:
             selected_rb.config(state='disabled')
-        
-        # Option: First 50 channels (quick read)
-        first50_rb = ttk.Radiobutton(range_frame, text="Read first 50 channels (quick)", 
-                                     variable=range_var, value='first50')
-        first50_rb.pack(anchor='w', padx=10, pady=(8, 3))
-        
-        first50_desc = ttk.Label(range_frame,
-            text="    Fast option - reads channels 0-49 only.",
-            font=('Arial', 9), foreground='#666666')
-        first50_desc.pack(anchor='w', padx=10)
         
         # Option: All 1000 channels
         all_rb = ttk.Radiobutton(range_frame, text="Read ALL 1000 channels (full backup)", 
@@ -1186,17 +1258,23 @@ class ChannelTableViewer:
         def on_cancel():
             dialog.destroy()
         
-        # LARGE prominent Start Read button
+        # LARGE prominent Start Read button (1.5x height = 3)
         start_btn = tk.Button(button_frame, text="📻  Start Read", command=on_start_read, 
-                             width=20, height=2, font=('Arial', 12, 'bold'),
+                             width=20, height=3, font=('Arial', 12, 'bold'),
                              bg=BLUE_PALETTE['primary'], fg='white',
                              activebackground=BLUE_PALETTE['primary_dark'], activeforeground='white',
                              cursor='hand2')
         start_btn.pack(side=tk.LEFT, padx=15)
         
         cancel_btn = tk.Button(button_frame, text="Cancel", command=on_cancel, 
-                              width=12, height=2, font=('Arial', 10))
+                              width=12, height=3, font=('Arial', 10))
         cancel_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Set initial focus to Start Read button so Enter key works
+        start_btn.focus_set()
+        
+        # Bind Enter key to trigger start read
+        dialog.bind('<Return>', lambda e: on_start_read())
         
         # Center dialog
         dialog.update_idletasks()
@@ -1326,6 +1404,125 @@ class ChannelTableViewer:
         
         return result['value']
     
+    def _show_write_options_dialog(self, selected_count: int) -> Optional[dict]:
+        """Show dialog to select which channels to write
+        
+        Args:
+            selected_count: Number of channels currently selected in R/W Selection panel
+            
+        Returns:
+            Dictionary with 'write_mode' key ('selected', 'programmed', or 'all'), 
+            or None if cancelled
+        """
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Write to Radio")
+        dialog.geometry("450x420")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        
+        # Header
+        header_frame = tk.Frame(dialog, bg=BLUE_PALETTE['header'], height=40)
+        header_frame.pack(fill=tk.X)
+        header_frame.pack_propagate(False)
+        tk.Label(header_frame, text="Write to Radio - Select Channels", font=('Arial', 11, 'bold'),
+                bg=BLUE_PALETTE['header'], fg='white').pack(side=tk.LEFT, padx=10, pady=8)
+        
+        # Content
+        content = ttk.Frame(dialog, padding=20)
+        content.pack(fill=tk.BOTH, expand=True)
+        
+        # Result holder
+        result = {'value': None}
+        
+        # === Channel Range Selection ===
+        ttk.Label(content, text="Which channels to write:", 
+                 font=('Arial', 10, 'bold')).pack(anchor='w', pady=(0, 10))
+        
+        # Count programmed channels (non-empty names)
+        programmed_count = sum(1 for ch_data in self.channels.values() 
+                               if ch_data.get('channelName', '').rstrip('\u0000').strip())
+        
+        # Default selection: programmed channels (most common use case)
+        default_range = 'programmed'
+        
+        range_var = tk.StringVar(value=default_range)
+        
+        range_frame = ttk.Frame(content)
+        range_frame.pack(fill=tk.X, pady=5)
+        
+        # Option: Programmed channels only (DEFAULT)
+        programmed_rb = ttk.Radiobutton(range_frame, 
+            text=f"Write {programmed_count} programmed channel(s) (recommended)", 
+            variable=range_var, value='programmed')
+        programmed_rb.pack(anchor='w', padx=10, pady=3)
+        
+        programmed_desc = ttk.Label(range_frame,
+            text="    Only writes channels with names - skips empty slots.",
+            font=('Arial', 9), foreground='#666666')
+        programmed_desc.pack(anchor='w', padx=10)
+        
+        # Option: Selected channels
+        selected_text = f"Write {selected_count} selected channel(s)" if selected_count > 0 else "Write selected channels (0 selected)"
+        selected_rb = ttk.Radiobutton(range_frame, text=selected_text, 
+                                       variable=range_var, value='selected')
+        selected_rb.pack(anchor='w', padx=10, pady=(8, 3))
+        
+        selected_desc = ttk.Label(range_frame,
+            text="    Only writes channels you've checked (☑) in the channel list.",
+            font=('Arial', 9), foreground='#666666')
+        selected_desc.pack(anchor='w', padx=10)
+        
+        if selected_count == 0:
+            selected_rb.config(state='disabled')
+        
+        # Option: All channels
+        all_rb = ttk.Radiobutton(range_frame, text="Write ALL channels (full upload)", 
+                                 variable=range_var, value='all')
+        all_rb.pack(anchor='w', padx=10, pady=(8, 3))
+        
+        all_desc = ttk.Label(range_frame,
+            text="    Complete upload - takes several minutes.",
+            font=('Arial', 9), foreground='#666666')
+        all_desc.pack(anchor='w', padx=10)
+        
+        # Button frame (shorter height)
+        button_frame = tk.Frame(dialog, bg='#E8E8E8', pady=10)
+        button_frame.pack(fill=tk.X, side=tk.BOTTOM)
+        
+        def on_start_write():
+            write_mode = range_var.get()
+            result['value'] = {'write_mode': write_mode}
+            dialog.destroy()
+        
+        def on_cancel():
+            dialog.destroy()
+        
+        # Start Write button (height=2 for shorter buttons)
+        start_btn = tk.Button(button_frame, text="📻  Start Write", command=on_start_write, 
+                             width=18, height=2, font=('Arial', 11, 'bold'),
+                             bg=BLUE_PALETTE['primary'], fg='white',
+                             activebackground=BLUE_PALETTE['primary_dark'], activeforeground='white',
+                             cursor='hand2')
+        start_btn.pack(side=tk.LEFT, padx=15)
+        
+        cancel_btn = tk.Button(button_frame, text="Cancel", command=on_cancel, 
+                              width=10, height=2, font=('Arial', 10))
+        cancel_btn.pack(side=tk.LEFT, padx=5)
+        
+        start_btn.focus_set()
+        dialog.bind('<Return>', lambda e: on_start_write())
+        
+        # Center dialog
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - dialog.winfo_width()) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{x}+{y}")
+        
+        self.root.wait_window(dialog)
+        
+        return result['value']
+    
     def _create_progress_dialog(self, title: str, total: int) -> dict:
         """Create a progress dialog for long operations with Cancel button
         
@@ -1334,14 +1531,14 @@ class ChannelTableViewer:
             total: Total number of steps
             
         Returns:
-            Dictionary with 'dialog', 'var', 'bar', 'label', 'cancelled' keys
+            Dictionary with 'dialog', 'var', 'bar', 'label', 'progress_info', 'cancelled' keys
         """
         # Reset cancel flag
         self.cancel_operation = False
         
         dialog = tk.Toplevel(self.root)
         dialog.title(title)
-        dialog.geometry("400x150")
+        dialog.geometry("400x180")
         dialog.transient(self.root)
         dialog.grab_set()
         dialog.resizable(False, False)
@@ -1360,14 +1557,24 @@ class ChannelTableViewer:
         content = ttk.Frame(dialog, padding=15)
         content.pack(fill=tk.BOTH, expand=True)
         
+        # Progress info label (x of y channels - percentage)
+        progress_info_var = tk.StringVar(value=f"0 of {total} channels (0%)")
+        progress_info_label = ttk.Label(content, textvariable=progress_info_var, 
+                                        font=('Arial', 11, 'bold'))
+        progress_info_label.pack(anchor='w', pady=(0, 5))
+        
         # Progress variable and bar
         progress_var = tk.IntVar(value=0)
         progress_bar = ttk.Progressbar(content, variable=progress_var, maximum=total, length=350)
         progress_bar.pack(fill=tk.X, pady=5)
         
-        # Status label
+        # Status label (detailed message)
         status_label = ttk.Label(content, text="Starting...", font=('Arial', 9))
         status_label.pack(anchor='w')
+        
+        # Store total for percentage calculation
+        dialog.total = total
+        dialog.progress_info_var = progress_info_var
         
         # Cancel button frame
         button_frame = ttk.Frame(content)
@@ -1381,6 +1588,14 @@ class ChannelTableViewer:
         cancel_btn = ttk.Button(button_frame, text="Cancel", command=on_cancel, width=10)
         cancel_btn.pack(side=tk.RIGHT)
         
+        # Bind ESC, Space, and Enter keys to cancel (elegant cancellation after current channel)
+        dialog.bind('<Escape>', lambda e: on_cancel())
+        dialog.bind('<space>', lambda e: on_cancel())
+        dialog.bind('<Return>', lambda e: on_cancel())
+        
+        # Focus the dialog to ensure key bindings work
+        dialog.focus_set()
+        
         # Center dialog
         dialog.update_idletasks()
         x = self.root.winfo_x() + (self.root.winfo_width() - dialog.winfo_width()) // 2
@@ -1392,6 +1607,8 @@ class ChannelTableViewer:
             'var': progress_var,
             'bar': progress_bar,
             'label': status_label,
+            'progress_info_var': progress_info_var,
+            'total': total,
             'cancel_btn': cancel_btn
         }
 
@@ -2887,10 +3104,12 @@ class ChannelTableViewer:
         rx_row += 1
         
         # RX CTCSS/DCS (disabled for DMR channels)
+        # NOTE: Uses emitYayin/receiveYayin fields - NOT rxCtcss/txCtcss which are IGNORED by radio!
         ttk.Label(rx_frame, text="RX CTCSS/DCS:", font=('Arial', 9, 'bold')).grid(
             row=rx_row, column=0, sticky=tk.W, padx=5, pady=5)
-        rx_ctcss = ch_data.get('rxCtcss', 0)
-        rx_ctcss_display = self._ctcss_value_to_display(rx_ctcss)
+        # Read from receiveYayin (the correct field that the radio actually uses)
+        rx_yayin = ch_data.get('receiveYayin', 0)
+        rx_ctcss_display = self._yayin_to_display(rx_yayin)
         if is_dmr:
             # Use tk.Entry for disabled state with gray background
             rx_ctcss_entry = tk.Entry(rx_frame, width=20, bg='#E0E0E0', fg='#808080')
@@ -2901,6 +3120,9 @@ class ChannelTableViewer:
             rx_ctcss_combo = ttk.Combobox(rx_frame, values=self.CTCSS_DCS_COMBINED, width=17)
             rx_ctcss_combo.set(rx_ctcss_display)
             rx_ctcss_combo.grid(row=rx_row, column=1, sticky=tk.W, padx=5, pady=5)
+            # Bind events to save CTCSS changes - saves to receiveYayin field
+            rx_ctcss_combo.bind('<<ComboboxSelected>>', lambda e: self._on_yayin_changed(rx_ctcss_combo, 'receiveYayin'))
+            rx_ctcss_combo.bind('<FocusOut>', lambda e: self._on_yayin_changed(rx_ctcss_combo, 'receiveYayin'))
         rx_row += 1
         
         # RX Color Code (only for DMR channels)
@@ -2912,6 +3134,9 @@ class ChannelTableViewer:
         rx_cc_spin.insert(0, str(rx_cc_value))
         if not is_dmr:
             rx_cc_spin.config(state='disabled', disabledbackground='#E0E0E0', disabledforeground='#808080')
+        else:
+            # Bind FocusOut to save Color Code changes
+            rx_cc_spin.bind('<FocusOut>', lambda e: self._on_color_code_changed(rx_cc_spin, 'rxCc'))
         rx_cc_spin.grid(row=rx_row, column=1, sticky=tk.W, padx=5, pady=5)
         rx_row += 1
         
@@ -2938,10 +3163,12 @@ class ChannelTableViewer:
         tx_row += 1
         
         # TX CTCSS/DCS (disabled for DMR channels)
+        # NOTE: Uses emitYayin/receiveYayin fields - NOT rxCtcss/txCtcss which are IGNORED by radio!
         ttk.Label(tx_frame, text="TX CTCSS/DCS:", font=('Arial', 9, 'bold')).grid(
             row=tx_row, column=0, sticky=tk.W, padx=5, pady=5)
-        tx_ctcss = ch_data.get('txCtcss', ch_data.get('rxCtcss', 0))
-        tx_ctcss_display = self._ctcss_value_to_display(tx_ctcss)
+        # Read from emitYayin (the correct field that the radio actually uses)
+        tx_yayin = ch_data.get('emitYayin', 0)
+        tx_ctcss_display = self._yayin_to_display(tx_yayin)
         if is_dmr:
             # Use tk.Entry for disabled state with gray background
             tx_ctcss_entry = tk.Entry(tx_frame, width=20, bg='#E0E0E0', fg='#808080')
@@ -2952,6 +3179,9 @@ class ChannelTableViewer:
             tx_ctcss_combo = ttk.Combobox(tx_frame, values=self.CTCSS_DCS_COMBINED, width=17)
             tx_ctcss_combo.set(tx_ctcss_display)
             tx_ctcss_combo.grid(row=tx_row, column=1, sticky=tk.W, padx=5, pady=5)
+            # Bind events to save CTCSS changes - saves to emitYayin field
+            tx_ctcss_combo.bind('<<ComboboxSelected>>', lambda e: self._on_yayin_changed(tx_ctcss_combo, 'emitYayin'))
+            tx_ctcss_combo.bind('<FocusOut>', lambda e: self._on_yayin_changed(tx_ctcss_combo, 'emitYayin'))
         tx_row += 1
         
         # TX Color Code (only for DMR channels)
@@ -2963,6 +3193,9 @@ class ChannelTableViewer:
         tx_cc_spin.insert(0, str(tx_cc_value))
         if not is_dmr:
             tx_cc_spin.config(state='disabled', disabledbackground='#E0E0E0', disabledforeground='#808080')
+        else:
+            # Bind FocusOut to save Color Code changes
+            tx_cc_spin.bind('<FocusOut>', lambda e: self._on_color_code_changed(tx_cc_spin, 'txCc'))
         tx_cc_spin.grid(row=tx_row, column=1, sticky=tk.W, padx=5, pady=5)
         tx_row += 1
         
@@ -2984,7 +3217,7 @@ class ChannelTableViewer:
         except (ValueError, IndexError):
             offset = 0.0
         
-        offset_var = tk.StringVar(value=f"{offset:+.6f} MHz")
+        offset_var = tk.StringVar(value=f"{offset:+.3f} MHz")
         offset_label = ttk.Label(tools_frame, textvariable=offset_var, 
                                 font=('Arial', 11, 'bold'), foreground=BLUE_PALETTE['primary'])
         offset_label.grid(row=tools_row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
@@ -3000,22 +3233,94 @@ class ChannelTableViewer:
             row=tools_row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=(5, 2))
         tools_row += 1
         
-        # Copy RX to TX button
-        def copy_rx_to_tx():
-            vfoa_tx_freq_var.set(vfoa_rx_freq_var.get())
-            offset_var.set("+0.000000 MHz")
-        
-        # Copy TX to RX button
-        def copy_tx_to_rx():
-            vfoa_rx_freq_var.set(vfoa_tx_freq_var.get())
-            offset_var.set("+0.000000 MHz")
-        
-        ttk.Button(tools_frame, text="RX ⟶ TX", command=copy_rx_to_tx).grid(
-            row=tools_row, column=0, columnspan=2, sticky=tk.EW, padx=5, pady=2)
+        # Checkbox to include CTCSS/DCS/Color Code when copying
+        copy_tones_var = tk.BooleanVar(value=True)
+        copy_tones_check = ttk.Checkbutton(tools_frame, text="Include tones/CC", 
+                                           variable=copy_tones_var, style='Toggle.TCheckbutton')
+        copy_tones_check.grid(row=tools_row, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
+        ToolTip(copy_tones_check, "When checked, also copies CTCSS/DCS (analog) or Color Code (DMR)")
         tools_row += 1
         
-        ttk.Button(tools_frame, text="RX ⟵ TX", command=copy_tx_to_rx).grid(
-            row=tools_row, column=0, columnspan=2, sticky=tk.EW, padx=5, pady=2)
+        # Copy RX to TX button (copies frequency, optionally CTCSS/DCS and Color Code)
+        def copy_rx_to_tx():
+            if not self.current_channel or self.current_channel not in self.channels:
+                return
+            
+            # Save state for undo
+            self._save_state("Copy RX to TX")
+            
+            ch_data = self.channels[self.current_channel]
+            
+            # Copy frequency
+            vfoa_tx_freq_var.set(vfoa_rx_freq_var.get())
+            offset_var.set("+0.000 MHz")
+            ch_data['vfobFrequency1'] = ch_data['vfoaFrequency1']
+            ch_data['vfobFrequency2'] = ch_data['vfoaFrequency2']
+            ch_data['vfobFrequency3'] = ch_data['vfoaFrequency3']
+            ch_data['vfobFrequency4'] = ch_data['vfoaFrequency4']
+            
+            # Copy CTCSS/DCS and Color Code only if checkbox is checked
+            if copy_tones_var.get():
+                # Copy CTCSS/DCS (for analog channels) - use emitYayin/receiveYayin (correct fields)
+                if not is_dmr:
+                    ch_data['emitYayin'] = ch_data.get('receiveYayin', 0)
+                
+                # Copy Color Code (for DMR channels)
+                if is_dmr:
+                    ch_data['txCc'] = ch_data.get('rxCc', 0)
+            
+            # Refresh the frequency tab to show updated values (use fresh data reference)
+            self._populate_freq_tab(self.channels[self.current_channel])
+            self._rebuild_channel_tree(reselect_channel_id=self.current_channel)
+            
+            if copy_tones_var.get():
+                self.status_label.config(text="Copied RX → TX (frequency + tones/CC)")
+            else:
+                self.status_label.config(text="Copied RX → TX (frequency only)")
+        
+        # Copy TX to RX button (copies frequency, optionally CTCSS/DCS and Color Code)
+        def copy_tx_to_rx():
+            if not self.current_channel or self.current_channel not in self.channels:
+                return
+            
+            # Save state for undo
+            self._save_state("Copy TX to RX")
+            
+            ch_data = self.channels[self.current_channel]
+            
+            # Copy frequency
+            vfoa_rx_freq_var.set(vfoa_tx_freq_var.get())
+            offset_var.set("+0.000 MHz")
+            ch_data['vfoaFrequency1'] = ch_data['vfobFrequency1']
+            ch_data['vfoaFrequency2'] = ch_data['vfobFrequency2']
+            ch_data['vfoaFrequency3'] = ch_data['vfobFrequency3']
+            ch_data['vfoaFrequency4'] = ch_data['vfobFrequency4']
+            
+            # Copy CTCSS/DCS and Color Code only if checkbox is checked
+            if copy_tones_var.get():
+                # Copy CTCSS/DCS (for analog channels) - use emitYayin/receiveYayin (correct fields)
+                if not is_dmr:
+                    ch_data['receiveYayin'] = ch_data.get('emitYayin', 0)
+                
+                # Copy Color Code (for DMR channels)
+                if is_dmr:
+                    ch_data['rxCc'] = ch_data.get('txCc', 0)
+            
+            # Refresh the frequency tab to show updated values (use fresh data reference)
+            self._populate_freq_tab(self.channels[self.current_channel])
+            self._rebuild_channel_tree(reselect_channel_id=self.current_channel)
+            
+            if copy_tones_var.get():
+                self.status_label.config(text="Copied TX → RX (frequency + tones/CC)")
+            else:
+                self.status_label.config(text="Copied TX → RX (frequency only)")
+        
+        tk.Button(tools_frame, text="RX → TX", command=copy_rx_to_tx, height=1).grid(
+            row=tools_row, column=0, columnspan=2, sticky=tk.EW, padx=5, pady=1)
+        tools_row += 1
+        
+        tk.Button(tools_frame, text="RX ← TX", command=copy_tx_to_rx, height=1).grid(
+            row=tools_row, column=0, columnspan=2, sticky=tk.EW, padx=5, pady=1)
         tools_row += 1
         
         # Separator
@@ -3042,7 +3347,23 @@ class ChannelTableViewer:
         except (ValueError, IndexError):
             suggested_offset = 0.0
         
-        custom_offset_var = tk.StringVar(value=f"{suggested_offset:+.1f}")
+        # Format offset: minimum 3 decimal places, strip trailing zeros after 3rd
+        def format_offset_display(val):
+            """Format offset with 3-6 decimal places (strip trailing zeros after 3rd)"""
+            formatted = f"{val:+.6f}"  # Full 6 decimals
+            # Strip trailing zeros, but keep at least 3 decimal places
+            parts = formatted.split('.')
+            if len(parts) == 2:
+                integer_part, decimal_part = parts
+                # Strip trailing zeros from decimal part
+                decimal_stripped = decimal_part.rstrip('0')
+                # Ensure at least 3 decimal places
+                if len(decimal_stripped) < 3:
+                    decimal_stripped = decimal_part[:3]
+                return f"{integer_part}.{decimal_stripped}"
+            return formatted
+        
+        custom_offset_var = tk.StringVar(value=format_offset_display(suggested_offset))
         custom_offset_entry = ttk.Entry(tools_frame, textvariable=custom_offset_var, 
                                        width=15, font=('Arial', 10))
         custom_offset_entry.grid(row=tools_row, column=0, columnspan=2, sticky=tk.EW, padx=5, pady=2)
@@ -3084,7 +3405,9 @@ class ChannelTableViewer:
                 offset_mhz = float(custom_offset_var.get())
                 new_tx = rx_freq + offset_mhz
                 vfoa_tx_freq_var.set(f"{new_tx:.6f}")
-                offset_var.set(f"{offset_mhz:+.6f} MHz")
+                offset_var.set(f"{offset_mhz:+.3f} MHz")
+                # Save the TX frequency to channel data
+                self._save_frequency_to_channel(f"{new_tx:.6f}", 'vfobFrequency')
             except (ValueError, IndexError):
                 pass
         
@@ -3095,16 +3418,18 @@ class ChannelTableViewer:
                 offset_mhz = float(custom_offset_var.get())
                 new_rx = tx_freq - offset_mhz
                 vfoa_rx_freq_var.set(f"{new_rx:.6f}")
-                offset_var.set(f"{offset_mhz:+.6f} MHz")
+                offset_var.set(f"{offset_mhz:+.3f} MHz")
+                # Save the RX frequency to channel data
+                self._save_frequency_to_channel(f"{new_rx:.6f}", 'vfoaFrequency')
             except (ValueError, IndexError):
                 pass
         
-        ttk.Button(tools_frame, text="RX + ⟶ TX", command=apply_offset_rx_to_tx).grid(
-            row=tools_row, column=0, columnspan=2, sticky=tk.EW, padx=5, pady=2)
+        tk.Button(tools_frame, text="RX + → TX", command=apply_offset_rx_to_tx, height=1).grid(
+            row=tools_row, column=0, columnspan=2, sticky=tk.EW, padx=5, pady=1)
         tools_row += 1
         
-        ttk.Button(tools_frame, text="RX ⟵ + TX", command=apply_offset_tx_to_rx).grid(
-            row=tools_row, column=0, columnspan=2, sticky=tk.EW, padx=5, pady=2)
+        tk.Button(tools_frame, text="RX ← + TX", command=apply_offset_tx_to_rx, height=1).grid(
+            row=tools_row, column=0, columnspan=2, sticky=tk.EW, padx=5, pady=1)
         tools_row += 1
         
         # Layout canvas and scrollbar
@@ -3166,10 +3491,13 @@ class ChannelTableViewer:
         )
         # Use tk.Entry for both cases for consistent behavior
         own_entry = tk.Entry(frame, width=20)
-        own_entry.insert(0, own_id)
+        own_entry.insert(0, own_id if own_id != '-' else '0')
         if not is_dmr:
             own_entry.config(state='disabled', bg='#E0E0E0', fg='#808080',
                            disabledbackground='#E0E0E0', disabledforeground='#808080')
+        else:
+            # Bind FocusOut to save Own ID changes
+            own_entry.bind('<FocusOut>', lambda e: self._on_dmr_id_changed(own_entry, 'ownId'))
         own_entry.grid(row=row, column=1, sticky=tk.W, padx=10, pady=5)
         row += 1
         
@@ -3191,6 +3519,8 @@ class ChannelTableViewer:
             tg_entry = tk.Spinbox(frame, from_=0, to=16777215, width=18)
             tg_entry.delete(0, tk.END)
             tg_entry.insert(0, str(tg_value))
+            # Bind FocusOut to save Call ID changes
+            tg_entry.bind('<FocusOut>', lambda e: self._on_dmr_id_changed(tg_entry, 'callId'))
         tg_entry.grid(row=row, column=1, sticky=tk.W, padx=10, pady=5)
         row += 1
         
@@ -3682,6 +4012,55 @@ class ChannelTableViewer:
             self._save_state("Rename channel")
             self._rebuild_channel_tree(reselect_channel_id=self.current_channel)
     
+    def _save_frequency_to_channel(self, freq_str: str, field_prefix: str):
+        """Save a frequency value to the current channel data
+        
+        This is called by copy buttons to immediately persist frequency changes.
+        
+        Args:
+            freq_str: Frequency string in MHz (e.g., "433.450000")
+            field_prefix: Prefix for frequency fields (e.g., 'vfoaFrequency' or 'vfobFrequency')
+        """
+        if not self.current_channel or self.current_channel not in self.channels:
+            return
+        
+        # Remove any warning symbols and whitespace
+        freq_str = freq_str.replace(' ⚠', '').strip()
+        
+        try:
+            # Parse the frequency
+            freq_mhz = float(freq_str)
+            
+            # Convert to bytes using the frequency utility
+            from ..utils.frequency import frequency_to_bytes
+            f1, f2, f3, f4 = frequency_to_bytes(freq_mhz)
+            
+            # Get current values to check if changed
+            ch_data = self.channels[self.current_channel]
+            old_f1 = ch_data.get(f'{field_prefix}1', 0)
+            old_f2 = ch_data.get(f'{field_prefix}2', 0)
+            old_f3 = ch_data.get(f'{field_prefix}3', 0)
+            old_f4 = ch_data.get(f'{field_prefix}4', 0)
+            
+            # Only save state and update if value actually changed
+            if (f1, f2, f3, f4) != (old_f1, old_f2, old_f3, old_f4):
+                # Save state for undo
+                self._save_state(f"Copy frequency to {field_prefix}")
+                
+                # Update channel data
+                self.channels[self.current_channel][f'{field_prefix}1'] = f1
+                self.channels[self.current_channel][f'{field_prefix}2'] = f2
+                self.channels[self.current_channel][f'{field_prefix}3'] = f3
+                self.channels[self.current_channel][f'{field_prefix}4'] = f4
+                
+                # Rebuild tree to update frequency column display
+                self._rebuild_channel_tree(reselect_channel_id=self.current_channel)
+                
+                self.status_label.config(text=f"Copied frequency to {field_prefix}: {freq_mhz:.6f} MHz")
+        except ValueError:
+            # Invalid frequency - just log and skip
+            self.status_label.config(text=f"Error: Invalid frequency '{freq_str}'")
+    
     def _on_frequency_focus_out(self, freq_var: tk.StringVar, field_prefix: str, entry_widget):
         """Handle when frequency entry loses focus - validate and save frequency
         
@@ -3756,6 +4135,207 @@ class ChannelTableViewer:
             )
             freq_var.set(original_freq)
             entry_widget.config(foreground='black')
+    
+    def _on_yayin_changed(self, combo_widget, field_name: str):
+        """Handle CTCSS/DCS combobox changes for emitYayin/receiveYayin fields
+        
+        Converts the display value to yayin index and saves to channel data.
+        
+        IMPORTANT: This uses the correct emitYayin/receiveYayin fields that the
+        radio actually reads/writes. The rxCtcss/txCtcss fields are IGNORED by the radio!
+        
+        Args:
+            combo_widget: The combobox widget
+            field_name: 'emitYayin' or 'receiveYayin'
+        """
+        if not self.current_channel or self.current_channel not in self.channels:
+            return
+        
+        try:
+            value_str = combo_widget.get().strip()
+            
+            # Convert display value to yayin index using the validated mapping
+            yayin_value = self._display_to_yayin(value_str)
+            
+            # Get current value to check if changed
+            ch_data = self.channels[self.current_channel]
+            old_value = ch_data.get(field_name, 0)
+            
+            if yayin_value != old_value:
+                # Save state for undo
+                self._save_state(f"Change {field_name}")
+                
+                # Update channel data with yayin index
+                self.channels[self.current_channel][field_name] = yayin_value
+                
+                logger.info(f"Saved {field_name}: {value_str} -> yayin={yayin_value}")
+                self.status_label.config(text=f"Updated {field_name} to {value_str} (yayin={yayin_value})")
+        
+        except Exception as e:
+            logger.error(f"Error saving {field_name}: {e}")
+            self.status_label.config(text=f"Error saving {field_name}")
+    
+    def _on_ctcss_changed(self, combo_widget, field_name: str):
+        """Handle CTCSS/DCS combobox changes (LEGACY - for rxCtcss/txCtcss fields)
+        
+        NOTE: This method saves to rxCtcss/txCtcss which are IGNORED by the radio!
+        Use _on_yayin_changed() for the correct emitYayin/receiveYayin fields.
+        
+        Converts the display value to internal integer format and saves to channel data.
+        
+        Args:
+            combo_widget: The combobox widget
+            field_name: 'rxCtcss' or 'txCtcss'
+        """
+        if not self.current_channel or self.current_channel not in self.channels:
+            return
+        
+        try:
+            value_str = combo_widget.get().strip()
+            
+            # Convert display value to internal format
+            if not value_str or value_str.lower() == 'off':
+                ctcss_value = 0
+            else:
+                # Try to parse as CTCSS tone (Hz)
+                try:
+                    tone_hz = float(value_str)
+                    if 67.0 <= tone_hz <= 250.3:
+                        ctcss_value = int(tone_hz * 10)  # Convert Hz to internal format
+                    else:
+                        ctcss_value = 0
+                except ValueError:
+                    # Try DCS code format (D###N or D###R)
+                    ctcss_value = self._parse_ctcss_dcs(value_str)
+            
+            # Get current value to check if changed
+            ch_data = self.channels[self.current_channel]
+            old_value = ch_data.get(field_name, 0)
+            
+            if ctcss_value != old_value:
+                # Save state for undo
+                self._save_state(f"Change {field_name}")
+                
+                # Update channel data
+                self.channels[self.current_channel][field_name] = ctcss_value
+                
+                logger.info(f"Saved {field_name}: {value_str} -> {ctcss_value}")
+                self.status_label.config(text=f"Updated {field_name} to {value_str}")
+        
+        except Exception as e:
+            logger.error(f"Error saving {field_name}: {e}")
+            self.status_label.config(text=f"Error saving {field_name}")
+    
+    def _on_color_code_changed(self, spin_widget, field_name: str):
+        """Handle Color Code spinbox changes
+        
+        Saves the color code value (0-15) to channel data.
+        
+        Args:
+            spin_widget: The spinbox widget
+            field_name: 'rxCc' or 'txCc'
+        """
+        if not self.current_channel or self.current_channel not in self.channels:
+            return
+        
+        try:
+            value_str = spin_widget.get().strip()
+            
+            # Parse and validate color code
+            try:
+                cc_value = int(value_str)
+                cc_value = max(0, min(15, cc_value))  # Clamp to 0-15
+            except ValueError:
+                cc_value = 0
+            
+            # Get current value to check if changed
+            ch_data = self.channels[self.current_channel]
+            old_value = ch_data.get(field_name, 0)
+            
+            if cc_value != old_value:
+                # Save state for undo
+                self._save_state(f"Change {field_name}")
+                
+                # Update channel data
+                self.channels[self.current_channel][field_name] = cc_value
+                
+                logger.info(f"Saved {field_name}: {cc_value}")
+                self.status_label.config(text=f"Updated {field_name} to {cc_value}")
+        
+        except Exception as e:
+            logger.error(f"Error saving {field_name}: {e}")
+            self.status_label.config(text=f"Error saving {field_name}")
+    
+    def _on_dmr_id_changed(self, entry_widget, field_prefix: str):
+        """Handle DMR ID field changes (ownId or callId)
+        
+        Encodes the DMR ID value into 4 bytes (big-endian) and saves to channel data.
+        DMR IDs are 24-bit values (0 to 16777215).
+        
+        Args:
+            entry_widget: The entry widget containing the value
+            field_prefix: 'ownId' or 'callId'
+        """
+        if not self.current_channel or self.current_channel not in self.channels:
+            return
+        
+        try:
+            # Get the value from the entry widget
+            value_str = entry_widget.get().strip()
+            
+            # Handle empty or dash as 0
+            if not value_str or value_str == '-':
+                dmr_id = 0
+            else:
+                dmr_id = int(value_str)
+            
+            # Validate range (24-bit max = 16777215)
+            if dmr_id < 0:
+                dmr_id = 0
+                entry_widget.delete(0, tk.END)
+                entry_widget.insert(0, '0')
+            elif dmr_id > 16777215:
+                dmr_id = 16777215
+                entry_widget.delete(0, tk.END)
+                entry_widget.insert(0, '16777215')
+            
+            # Get current values to check if changed
+            ch_data = self.channels[self.current_channel]
+            old_b1 = ch_data.get(f'{field_prefix}1', 0)
+            old_b2 = ch_data.get(f'{field_prefix}2', 0)
+            old_b3 = ch_data.get(f'{field_prefix}3', 0)
+            old_b4 = ch_data.get(f'{field_prefix}4', 0)
+            old_value = (old_b1 << 24) | (old_b2 << 16) | (old_b3 << 8) | old_b4
+            
+            # Only save if value changed
+            if dmr_id != old_value:
+                # Save state for undo
+                self._save_state(f"Change {field_prefix}")
+                
+                # Encode to 4 bytes (big-endian)
+                self.channels[self.current_channel][f'{field_prefix}1'] = (dmr_id >> 24) & 0xFF
+                self.channels[self.current_channel][f'{field_prefix}2'] = (dmr_id >> 16) & 0xFF
+                self.channels[self.current_channel][f'{field_prefix}3'] = (dmr_id >> 8) & 0xFF
+                self.channels[self.current_channel][f'{field_prefix}4'] = dmr_id & 0xFF
+                
+                # Log for debugging
+                logger.info(f"Saved {field_prefix}: {dmr_id} -> bytes [{(dmr_id >> 24) & 0xFF}, {(dmr_id >> 16) & 0xFF}, {(dmr_id >> 8) & 0xFF}, {dmr_id & 0xFF}]")
+                
+                self.status_label.config(text=f"Updated {field_prefix} to {dmr_id}")
+        
+        except ValueError:
+            # Invalid value - show error
+            self.status_label.config(text=f"Invalid {field_prefix}: must be a number 0-16777215")
+            # Revert to current value
+            ch_data = self.channels[self.current_channel]
+            old_value_str = self.id_from_bytes(
+                ch_data.get(f'{field_prefix}1', 0),
+                ch_data.get(f'{field_prefix}2', 0),
+                ch_data.get(f'{field_prefix}3', 0),
+                ch_data.get(f'{field_prefix}4', 0)
+            )
+            entry_widget.delete(0, tk.END)
+            entry_widget.insert(0, old_value_str if old_value_str != '-' else '0')
     
     def _update_field(self, field_name, value):
         """Update a field in the current channel's data"""

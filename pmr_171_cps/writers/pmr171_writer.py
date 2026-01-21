@@ -83,11 +83,20 @@ class PMR171Writer:
         
         mode_value = self.MODES.get(mode.upper(), 6)
         
-        # Determine channel type: 255=analog, 1=digital (from actual radio dump)
-        ch_type = 1 if is_digital else 255
+        # Get callFormat from kwargs (important for DMR channel type determination)
+        call_format = kwargs.get('callFormat', 2 if is_digital else 255)
         
-        # callFormat: 255 for analog, 2 for digital (from actual radio dump)
-        call_format = 2 if is_digital else 255
+        # Determine channel type based on call format:
+        # For DMR channels:
+        #   - callFormat 0 (single/private) → chType 1 but displays as "DFM" mode
+        #   - callFormat 1 (group) → chType 1 and displays as "DMR" mode  
+        #   - callFormat 2 (all) → chType 1 and displays as "DMR" mode
+        # Note: Both DFM and DMR use chType=1, but radio displays them differently based on callFormat
+        # For analog: ch_type = 0
+        if is_digital:
+            ch_type = 1  # All digital modes use chType 1 (DFM and DMR)
+        else:
+            ch_type = 0  # Analog channels use chType 0
         
         # Convert tones to emitYayin/receiveYayin values
         # Testing proved rxCtcss/txCtcss are IGNORED by radio

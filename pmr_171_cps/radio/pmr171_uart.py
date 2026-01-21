@@ -10,15 +10,31 @@ Packet Format:
   | 0xA5 | 0xA5 | 0xA5 | 0xA5 | Length | Command | DATA... | CRC_H | CRC_L |
 
 Commands:
-  - 0x40: Channel Write (26-byte payload)
+  - 0x40: Channel Write (26-byte payload) - Basic channel data (freq, mode, CTCSS, name)
   - 0x41: Channel Read (2-byte request, 26-byte response)
+  - 0x43: DMR Data Write (26-byte payload) - Color codes, timeslot, talk group, DMR ID
+  - 0x44: DMR Data Read (2-byte request, 26-byte response)
   - 0x07: PTT Control
   - 0x0A: Mode Setting
   - 0x0B: Status Synchronization
   - 0x27: Equipment Type Recognition
 
-Note: 0x43 was previously thought to be read, but is actually
-write acknowledgment/echo. The correct read command is 0x41.
+DMR Channel Programming:
+  For DMR channels (mode 9), programming requires TWO packets:
+  1. Command 0x40 - Basic channel data (frequency, mode, name)
+  2. Command 0x43 - DMR-specific data (color code, slot, IDs)
+
+DMR Data Packet Structure (0x43/0x44, 26 bytes):
+  - Bytes 0-1:   Channel index (big-endian)
+  - Byte 2:      Padding (0x00)
+  - Byte 3:      RX Color Code (0-15)
+  - Byte 4:      TX Color Code (0-15)
+  - Byte 5:      Timeslot (1 or 2)
+  - Bytes 6-9:   Talk Group / Call ID (big-endian)
+  - Bytes 10-13: Own DMR ID (big-endian)
+  - Bytes 14-19: Reserved
+  - Byte 19:     Call Type (0x01 = Group, 0x00 = Private)
+  - Bytes 20-25: Other settings
 
 CRC: CRC-16-CCITT (polynomial 0x1021, initial value 0xFFFF)
 """
@@ -76,7 +92,10 @@ class Command(IntEnum):
     RIT_SETTING = 0x29
     SPECTRUM_DATA = 0x39
     CHANNEL_WRITE = 0x40
-    CHANNEL_READ = 0x41  # Note: 0x41 is READ, 0x43 was write acknowledgment
+    CHANNEL_READ = 0x41
+    # DMR-specific commands (discovered via UART capture)
+    DMR_DATA_WRITE = 0x43  # Write DMR-specific data (color code, slot, IDs)
+    DMR_DATA_READ = 0x44   # Read DMR-specific data
 
 
 class Mode(IntEnum):
@@ -130,6 +149,14 @@ class ChannelData:
     rx_ctcss_index: int
     tx_ctcss_index: int
     name: str
+    # DMR-specific fields
+    rx_cc: int = 1  # RX Color Code (0-15), default 1
+    tx_cc: int = 1  # TX Color Code (0-15), default 1
+    slot: int = 1   # DMR Timeslot (1 or 2), default 1
+    # DMR IDs (stored as 4-byte big-endian in JSON)
+    own_id: int = 0      # Radio's own DMR ID
+    call_id: int = 0     # Talkgroup/Private Call ID
+    call_format: int = 1 # Call type: 0=Private, 1=Group, 2=All Call
     
     @property
     def rx_freq_mhz(self) -> float:
@@ -172,6 +199,10 @@ class ChannelData:
         rx_bytes = self.rx_freq_hz.to_bytes(4, 'big')
         tx_bytes = self.tx_freq_hz.to_bytes(4, 'big')
         
+        # Calculate DMR ID bytes (big-endian, 4 bytes each)
+        own_id_bytes = self.own_id.to_bytes(4, 'big')
+        call_id_bytes = self.call_id.to_bytes(4, 'big')
+        
         return {
             "channelLow": self.index,
             "channelHigh": 0,
@@ -199,18 +230,21 @@ class ChannelData:
             "compander": 0,
             "sql": 0,
             "chType": 1 if self.rx_mode == Mode.DMR else 0,
-            "callFormat": 0,
-            "callId1": 0,
-            "callId2": 0,
-            "callId3": 0,
-            "callId4": 0,
-            "ownId1": 0,
-            "ownId2": 0,
-            "ownId3": 0,
-            "ownId4": 0,
-            "rxCc": 0,
-            "txCc": 2,
-            "slot": 0,
+            "callFormat": self.call_format,
+            # DMR IDs (4-byte big-endian)
+            "callId1": call_id_bytes[0],
+            "callId2": call_id_bytes[1],
+            "callId3": call_id_bytes[2],
+            "callId4": call_id_bytes[3],
+            "ownId1": own_id_bytes[0],
+            "ownId2": own_id_bytes[1],
+            "ownId3": own_id_bytes[2],
+            "ownId4": own_id_bytes[3],
+            # DMR Color Codes (0-15)
+            "rxCc": self.rx_cc,
+            "txCc": self.tx_cc,
+            # DMR Timeslot (1 or 2, stored as 0 or 1 in some formats)
+            "slot": self.slot,
             "vfoaFilter": 0,
             "vfobFilter": 0,
         }
@@ -232,6 +266,20 @@ class ChannelData:
             data.get("vfobFrequency4", 0)
         )
         
+        # Extract DMR IDs from 4-byte big-endian format
+        own_id = (
+            (data.get("ownId1", 0) << 24) |
+            (data.get("ownId2", 0) << 16) |
+            (data.get("ownId3", 0) << 8) |
+            data.get("ownId4", 0)
+        )
+        call_id = (
+            (data.get("callId1", 0) << 24) |
+            (data.get("callId2", 0) << 16) |
+            (data.get("callId3", 0) << 8) |
+            data.get("callId4", 0)
+        )
+        
         return cls(
             index=data.get("channelLow", 0),
             rx_mode=data.get("vfoaMode", Mode.NFM),
@@ -240,7 +288,14 @@ class ChannelData:
             tx_freq_hz=tx_freq,
             rx_ctcss_index=data.get("receiveYayin", 0),
             tx_ctcss_index=data.get("emitYayin", 0),
-            name=data.get("channelName", "")
+            name=data.get("channelName", ""),
+            # DMR-specific fields
+            rx_cc=data.get("rxCc", 1),  # Default to Color Code 1
+            tx_cc=data.get("txCc", 1),
+            slot=data.get("slot", 1),   # Default to Timeslot 1
+            own_id=own_id,
+            call_id=call_id,
+            call_format=data.get("callFormat", 1)  # 0=Private, 1=Group, 2=All Call
         )
     
     def __repr__(self) -> str:
@@ -439,6 +494,95 @@ def parse_channel_packet(data: bytes) -> ChannelData:
     )
 
 
+def build_dmr_data_packet(channel: ChannelData, command: int = Command.DMR_DATA_WRITE) -> bytes:
+    """
+    Build a DMR data write packet (command 0x43).
+    
+    DMR data structure (26 bytes):
+    - 0-1:   Channel index (big-endian)
+    - 2:     Padding (0x00)
+    - 3:     RX Color Code (0-15)
+    - 4:     TX Color Code (0-15)
+    - 5:     Timeslot (1 or 2)
+    - 6-9:   Talk Group / Call ID (big-endian)
+    - 10-13: Own DMR ID (big-endian)
+    - 14-17: Unknown (0x00 0x00 0x00 0x00)
+    - 18:    Unknown (0x00)
+    - 19:    Call Type (0x00 = Private, 0x01 = Group, 0x02 = All Call)
+    - 20-25: Other settings (0x00 0x00 0x00 0x00 0x00 0x01)
+    
+    Args:
+        channel: ChannelData containing DMR settings
+        command: Command code (DMR_DATA_WRITE)
+        
+    Returns:
+        Complete packet bytes
+    """
+    # Get call type from channel's call_format field
+    # 0 = Private call, 1 = Group call, 2 = All call
+    call_type = getattr(channel, 'call_format', 1)  # Default to group call
+    
+    # Build DMR data payload (26 bytes)
+    data = (
+        struct.pack('>H', channel.index) +      # Channel index (2 bytes)
+        bytes([0x00]) +                          # Padding (1 byte)
+        bytes([channel.rx_cc & 0x0F]) +          # RX Color Code (1 byte, 0-15)
+        bytes([channel.tx_cc & 0x0F]) +          # TX Color Code (1 byte, 0-15)
+        bytes([channel.slot]) +                  # Timeslot (1 byte, 1 or 2)
+        struct.pack('>I', channel.call_id) +    # Talk Group ID (4 bytes)
+        struct.pack('>I', channel.own_id) +     # Own DMR ID (4 bytes)
+        bytes([0x00, 0x00, 0x00, 0x00]) +        # Unknown (4 bytes)
+        bytes([0x00]) +                          # Unknown (1 byte)
+        bytes([call_type]) +                     # Call Type (1 byte)
+        bytes([0x00, 0x00, 0x00, 0x00, 0x00, 0x01])  # Other settings (6 bytes)
+    )
+    
+    return build_packet(command, data)
+
+
+def parse_dmr_data_packet(data: bytes, channel: ChannelData = None) -> dict:
+    """
+    Parse a DMR data packet payload (from 0x44 response).
+    
+    Args:
+        data: Payload bytes (26 bytes)
+        channel: Optional ChannelData to update with DMR fields
+        
+    Returns:
+        Dictionary with DMR fields
+    """
+    if len(data) < 26:
+        raise ValueError(f"DMR data too short: {len(data)} bytes")
+    
+    index = struct.unpack('>H', data[0:2])[0]
+    rx_cc = data[3]
+    tx_cc = data[4]
+    slot = data[5]
+    call_id = struct.unpack('>I', data[6:10])[0]
+    own_id = struct.unpack('>I', data[10:14])[0]
+    call_type = data[19]  # 1 = Group, 0 = Private
+    
+    result = {
+        'index': index,
+        'rx_cc': rx_cc,
+        'tx_cc': tx_cc,
+        'slot': slot,
+        'call_id': call_id,
+        'own_id': own_id,
+        'call_type': call_type
+    }
+    
+    # Update channel if provided
+    if channel is not None:
+        channel.rx_cc = rx_cc
+        channel.tx_cc = tx_cc
+        channel.slot = slot
+        channel.call_id = call_id
+        channel.own_id = own_id
+    
+    return result
+
+
 def list_serial_ports() -> List[Dict[str, str]]:
     """
     List available serial ports.
@@ -504,6 +648,7 @@ class PMR171Radio:
         Open serial connection to radio.
         
         The PMR-171 requires DTR and RTS to be set high to enter programming mode.
+        After connection, we send a test read command to ensure the radio is ready.
         
         Raises:
             ConnectionError: If connection fails
@@ -533,9 +678,82 @@ class PMR171Radio:
             self._serial.reset_output_buffer()
             time.sleep(0.5)  # Allow radio to stabilize and enter programming mode
             
+            # Clear any streaming status data from the radio
+            # The radio may be sending status updates (84 a9 61 00 header)
+            # We need to flush these before programming commands will work
+            for _ in range(5):
+                if self._serial.in_waiting > 0:
+                    stale = self._serial.read(self._serial.in_waiting)
+                    logger.debug(f"Cleared {len(stale)} bytes of status data during connect")
+                    time.sleep(0.1)
+                else:
+                    break
+            
             logger.debug(f"Connected to {self.port} with DTR=True, RTS=True")
+            
+            # Send a test read command to wake the radio into programming mode
+            # The radio streams status data (84 a9 61 00) until it receives a valid command
+            try:
+                self._wake_radio()
+            except Exception as e:
+                logger.warning(f"Wake command failed (may be normal): {e}")
+                
         except serial.SerialException as e:
             raise ConnectionError(f"Failed to connect to {self.port}: {e}")
+    
+    def _wake_radio(self) -> bool:
+        """
+        Wake the radio into programming mode by sending a read command.
+        
+        The radio streams status data (84 a9 61 00 header) until it receives
+        a valid programming command. This method sends a channel read request
+        to trigger programming mode.
+        
+        Returns:
+            True if radio responded to programming command
+        """
+        logger.debug("Sending wake command to radio...")
+        
+        # Clear any streaming status data
+        for _ in range(10):
+            if self._serial.in_waiting > 0:
+                stale = self._serial.read(self._serial.in_waiting)
+                logger.debug(f"Cleared {len(stale)} bytes during wake")
+                time.sleep(0.05)
+            else:
+                break
+        
+        # Send a simple channel 0 read command to trigger programming mode
+        data = struct.pack('>H', 0)  # Channel 0
+        packet = build_packet(Command.CHANNEL_READ, data)
+        
+        try:
+            self._serial.write(packet)
+            self._serial.flush()
+            time.sleep(0.2)
+            
+            # Try to read response - may take a few attempts
+            for attempt in range(5):
+                # Clear any garbage
+                if self._serial.in_waiting > 0:
+                    response_data = self._serial.read(self._serial.in_waiting)
+                    
+                    # Look for A5 A5 A5 A5 header in response
+                    header_pos = response_data.find(PACKET_HEADER)
+                    if header_pos != -1:
+                        logger.debug(f"Radio woke up - found valid header at byte {header_pos}")
+                        return True
+                    else:
+                        logger.debug(f"Wake attempt {attempt+1}: got {len(response_data)} bytes, no valid header yet")
+                
+                time.sleep(0.1)
+            
+            logger.warning("Radio did not respond to wake command")
+            return False
+            
+        except Exception as e:
+            logger.warning(f"Wake command error: {e}")
+            return False
     
     def disconnect(self) -> None:
         """Close serial connection"""
@@ -573,12 +791,13 @@ class PMR171Radio:
         except serial.SerialException as e:
             raise CommunicationError(f"Failed to send packet: {e}")
     
-    def _receive_packet(self, expected_length: int = None) -> bytes:
+    def _receive_packet(self, expected_length: int = None, retry_on_bad_header: bool = True) -> bytes:
         """
         Receive a packet from the radio.
         
         Args:
             expected_length: Expected packet length (optional)
+            retry_on_bad_header: If True, keep looking for valid header in stream
             
         Returns:
             Complete packet bytes
@@ -591,13 +810,41 @@ class PMR171Radio:
             raise CommunicationError("Not connected to radio")
         
         try:
-            # Read header
-            header = self._serial.read(4)
-            if len(header) < 4:
-                raise TimeoutError("Timeout waiting for packet header")
+            # The radio may be streaming status data (84 a9 61 00 header)
+            # We need to scan through the stream looking for the valid A5 A5 A5 A5 header
+            max_scan_bytes = 500  # Maximum bytes to scan through
+            scanned = 0
+            buffer = bytearray()
             
-            if header != PACKET_HEADER:
-                raise CommunicationError(f"Invalid header: {header.hex()}")
+            start_time = time.time()
+            timeout = self.timeout * 2  # Allow extra time for scanning
+            
+            while scanned < max_scan_bytes:
+                if time.time() - start_time > timeout:
+                    raise TimeoutError("Timeout waiting for packet header")
+                
+                # Read one byte at a time until we find header
+                byte = self._serial.read(1)
+                if not byte:
+                    continue  # Timeout on single byte read, keep trying
+                
+                buffer.append(byte[0])
+                scanned += 1
+                
+                # Check if we have 4 bytes and if they match the header
+                if len(buffer) >= 4:
+                    if buffer[-4:] == bytearray(PACKET_HEADER):
+                        # Found valid header!
+                        if scanned > 4:
+                            logger.debug(f"Found valid header after scanning {scanned} bytes")
+                        break
+                    # Keep only last 3 bytes for overlap check
+                    if len(buffer) > 100:
+                        buffer = buffer[-3:]
+            else:
+                raise TimeoutError(f"Valid header not found after scanning {scanned} bytes")
+            
+            header = bytes(PACKET_HEADER)
             
             # Read length byte
             length_byte = self._serial.read(1)
@@ -640,48 +887,282 @@ class PMR171Radio:
         cmd, payload, _ = parse_packet(response)
         return payload
     
-    def read_channel(self, channel_index: int) -> ChannelData:
+    def read_channel(self, channel_index: int, max_retries: int = 10) -> ChannelData:
         """
-        Read a single channel from the radio.
+        Read a single channel from the radio with automatic retry on failure.
         
         Uses 0x41 command with just 2-byte channel index (big-endian).
         Radio responds with full 26-byte channel data.
         
         Args:
             channel_index: Channel number (0-999)
+            max_retries: Maximum number of retry attempts (default 10)
             
         Returns:
             ChannelData object
         """
-        # Build channel read request - just the 2-byte channel index
-        data = struct.pack('>H', channel_index)
-        packet = build_packet(Command.CHANNEL_READ, data)
+        last_error = None
         
-        self._send_packet(packet)
-        response = self._receive_packet()
-        cmd, payload, _ = parse_packet(response)
+        for attempt in range(max_retries):
+            try:
+                # Clear any stale data from input buffer before sending request
+                if self._serial and self._serial.in_waiting > 0:
+                    stale = self._serial.read(self._serial.in_waiting)
+                    logger.debug(f"Cleared {len(stale)} stale bytes before read")
+                
+                # Build channel read request - just the 2-byte channel index
+                data = struct.pack('>H', channel_index)
+                packet = build_packet(Command.CHANNEL_READ, data)
+                
+                self._send_packet(packet)
+                response = self._receive_packet()
+                cmd, payload, _ = parse_packet(response)
+                
+                if attempt > 0:
+                    logger.info(f"Channel {channel_index} read succeeded on retry {attempt + 1}")
+                
+                channel = parse_channel_packet(payload)
+                
+                # For DMR channels, also read DMR-specific data
+                if channel.rx_mode == Mode.DMR:
+                    try:
+                        dmr_data = self.read_dmr_data(channel_index)
+                        channel.rx_cc = dmr_data.get('rx_cc', 1)
+                        channel.tx_cc = dmr_data.get('tx_cc', 1)
+                        channel.slot = dmr_data.get('slot', 1)
+                        channel.call_id = dmr_data.get('call_id', 0)
+                        channel.own_id = dmr_data.get('own_id', 0)
+                        channel.call_format = dmr_data.get('call_type', 1)  # 0=Private, 1=Group, 2=All
+                        logger.debug(f"Channel {channel_index} DMR data: CC={channel.rx_cc}, Slot={channel.slot}, callType={channel.call_format}")
+                    except Exception as e:
+                        logger.warning(f"Channel {channel_index} DMR read failed: {e}")
+                
+                return channel
+                
+            except (CommunicationError, TimeoutError, CRCError) as e:
+                last_error = e
+                logger.warning(f"Channel {channel_index} read attempt {attempt + 1}/{max_retries} failed: {e}")
+                
+                # Clear buffer and wait before retry
+                if self._serial:
+                    time.sleep(0.2)  # Extra settling time
+                    if self._serial.in_waiting > 0:
+                        stale = self._serial.read(self._serial.in_waiting)
+                        logger.debug(f"Cleared {len(stale)} bytes before retry")
+                
+                if attempt < max_retries - 1:
+                    # Wait longer before each subsequent retry
+                    time.sleep(0.3 * (attempt + 1))
         
-        return parse_channel_packet(payload)
+        # All retries exhausted
+        logger.error(f"Channel {channel_index} read failed after {max_retries} attempts: {last_error}")
+        raise last_error
     
-    def write_channel(self, channel: ChannelData) -> bool:
+    def write_channel(self, channel: ChannelData, max_retries: int = 10) -> bool:
         """
-        Write a single channel to the radio.
+        Write a single channel to the radio with automatic retry on failure.
+        
+        For DMR channels (mode 9), this also writes the DMR-specific data
+        (color codes, timeslot, IDs) using command 0x43.
         
         Args:
             channel: ChannelData to write
+            max_retries: Maximum number of retry attempts (default 10)
+            
+        Returns:
+            True if successful
+            
+        Note:
+            The radio requires time to commit data to flash memory after receiving
+            the write command. A delay is inserted before reading the acknowledgment
+            to ensure the data is persisted. Without this delay, writes may appear
+            to succeed but not actually be saved to the radio's memory.
+            
+            The currently-selected channel on the radio display may cause additional
+            lag on the radio side, resulting in timing issues. This method implements
+            automatic retry with increasing delays to handle such cases gracefully.
+        """
+        last_error = None
+        
+        for attempt in range(max_retries):
+            try:
+                # Clear any stale data from input buffer before sending write
+                if self._serial and self._serial.in_waiting > 0:
+                    stale = self._serial.read(self._serial.in_waiting)
+                    logger.debug(f"Cleared {len(stale)} stale bytes before write")
+                
+                # Wake the radio by sending a read command first
+                # This ensures the radio is in programming mode right before the write
+                logger.debug(f"Pre-write wake: reading channel {channel.index} first...")
+                try:
+                    # Send read command to wake/keep radio in programming mode
+                    read_data = struct.pack('>H', channel.index)
+                    read_packet = build_packet(Command.CHANNEL_READ, read_data)
+                    self._serial.write(read_packet)
+                    self._serial.flush()
+                    time.sleep(0.15)
+                    # Wait for and consume the read response properly
+                    for _ in range(10):
+                        if self._serial.in_waiting > 0:
+                            response_data = self._serial.read(self._serial.in_waiting)
+                            if PACKET_HEADER in response_data:
+                                logger.debug(f"Pre-write wake: got valid response ({len(response_data)} bytes)")
+                                break
+                        time.sleep(0.02)
+                except Exception as e:
+                    logger.debug(f"Pre-write wake failed (continuing anyway): {e}")
+                
+                packet = build_channel_packet(channel, Command.CHANNEL_WRITE)
+                self._send_packet(packet)
+                
+                # Read response immediately - no delay needed
+                # The radio echoes back the write packet
+                response = self._receive_packet()
+                cmd, payload, _ = parse_packet(response)
+                
+                # Verify the write by checking response
+                if cmd == Command.CHANNEL_WRITE:
+                    if attempt > 0:
+                        logger.info(f"Channel {channel.index} write succeeded on retry {attempt + 1}")
+                    
+                    # For DMR channels, also write DMR-specific data
+                    if channel.rx_mode == Mode.DMR:
+                        dmr_success = self.write_dmr_data(channel)
+                        if not dmr_success:
+                            logger.warning(f"Channel {channel.index} DMR data write failed")
+                            # Continue anyway - basic channel is written
+                    
+                    return True
+                else:
+                    logger.warning(f"Channel {channel.index} write got unexpected response: cmd=0x{cmd:02X}")
+                    
+            except (CommunicationError, TimeoutError, CRCError) as e:
+                last_error = e
+                logger.warning(f"Channel {channel.index} write attempt {attempt + 1}/{max_retries} failed: {e}")
+                
+                # Clear buffer and wait before retry
+                if self._serial:
+                    time.sleep(0.2)  # Extra settling time
+                    if self._serial.in_waiting > 0:
+                        stale = self._serial.read(self._serial.in_waiting)
+                        logger.debug(f"Cleared {len(stale)} bytes before retry")
+                
+                if attempt < max_retries - 1:
+                    # Wait longer before each subsequent retry
+                    time.sleep(0.3 * (attempt + 1))
+        
+        # All retries exhausted
+        logger.error(f"Channel {channel.index} write failed after {max_retries} attempts: {last_error}")
+        return False
+    
+    def read_dmr_data(self, channel_index: int, max_retries: int = 10) -> dict:
+        """
+        Read DMR-specific data for a channel using command 0x44.
+        
+        Args:
+            channel_index: Channel number (0-999)
+            max_retries: Maximum number of retry attempts
+            
+        Returns:
+            Dictionary with DMR fields (rx_cc, tx_cc, slot, call_id, own_id)
+        """
+        last_error = None
+        
+        for attempt in range(max_retries):
+            try:
+                # Clear any stale data
+                if self._serial and self._serial.in_waiting > 0:
+                    stale = self._serial.read(self._serial.in_waiting)
+                    logger.debug(f"Cleared {len(stale)} stale bytes before DMR read")
+                
+                # Build DMR data read request - just the 2-byte channel index
+                data = struct.pack('>H', channel_index)
+                packet = build_packet(Command.DMR_DATA_READ, data)
+                
+                self._send_packet(packet)
+                response = self._receive_packet()
+                cmd, payload, _ = parse_packet(response)
+                
+                if cmd == Command.DMR_DATA_READ:
+                    if attempt > 0:
+                        logger.info(f"Channel {channel_index} DMR read succeeded on retry {attempt + 1}")
+                    return parse_dmr_data_packet(payload)
+                else:
+                    logger.warning(f"DMR read got unexpected response: cmd=0x{cmd:02X}")
+                    
+            except (CommunicationError, TimeoutError, CRCError) as e:
+                last_error = e
+                logger.warning(f"Channel {channel_index} DMR read attempt {attempt + 1}/{max_retries} failed: {e}")
+                
+                if self._serial:
+                    time.sleep(0.2)
+                    if self._serial.in_waiting > 0:
+                        stale = self._serial.read(self._serial.in_waiting)
+                        logger.debug(f"Cleared {len(stale)} bytes before retry")
+                
+                if attempt < max_retries - 1:
+                    time.sleep(0.3 * (attempt + 1))
+        
+        logger.error(f"Channel {channel_index} DMR read failed after {max_retries} attempts: {last_error}")
+        raise last_error
+    
+    def write_dmr_data(self, channel: ChannelData, max_retries: int = 10) -> bool:
+        """
+        Write DMR-specific data for a channel using command 0x43.
+        
+        Args:
+            channel: ChannelData containing DMR settings
+            max_retries: Maximum number of retry attempts
             
         Returns:
             True if successful
         """
-        packet = build_channel_packet(channel, Command.CHANNEL_WRITE)
-        self._send_packet(packet)
+        last_error = None
         
-        # Wait for acknowledgment
-        response = self._receive_packet()
-        cmd, payload, _ = parse_packet(response)
+        logger.info(f"write_dmr_data ch{channel.index}: CC={channel.rx_cc}/{channel.tx_cc}, slot={channel.slot}, TG={channel.call_id}, ownID={channel.own_id}")
         
-        # Verify the write by checking response
-        return cmd == Command.CHANNEL_WRITE
+        for attempt in range(max_retries):
+            try:
+                # Clear any stale data
+                if self._serial and self._serial.in_waiting > 0:
+                    stale = self._serial.read(self._serial.in_waiting)
+                    logger.debug(f"Cleared {len(stale)} stale bytes before DMR write")
+                
+                packet = build_dmr_data_packet(channel, Command.DMR_DATA_WRITE)
+                logger.debug(f"DMR packet (hex): {packet.hex()}")
+                self._send_packet(packet)
+                
+                # Wait for radio to commit
+                base_delay = 0.15
+                retry_delay = base_delay + (attempt * 0.1)
+                time.sleep(retry_delay)
+                
+                # Wait for acknowledgment
+                response = self._receive_packet()
+                cmd, payload, _ = parse_packet(response)
+                
+                if cmd == Command.DMR_DATA_WRITE:
+                    if attempt > 0:
+                        logger.info(f"Channel {channel.index} DMR write succeeded on retry {attempt + 1}")
+                    return True
+                else:
+                    logger.warning(f"DMR write got unexpected response: cmd=0x{cmd:02X}")
+                    
+            except (CommunicationError, TimeoutError, CRCError) as e:
+                last_error = e
+                logger.warning(f"Channel {channel.index} DMR write attempt {attempt + 1}/{max_retries} failed: {e}")
+                
+                if self._serial:
+                    time.sleep(0.2)
+                    if self._serial.in_waiting > 0:
+                        stale = self._serial.read(self._serial.in_waiting)
+                        logger.debug(f"Cleared {len(stale)} bytes before retry")
+                
+                if attempt < max_retries - 1:
+                    time.sleep(0.3 * (attempt + 1))
+        
+        logger.error(f"Channel {channel.index} DMR write failed after {max_retries} attempts: {last_error}")
+        return False
     
     def read_all_channels(self, 
                           progress_callback: Callable[[int, int, str], None] = None,
