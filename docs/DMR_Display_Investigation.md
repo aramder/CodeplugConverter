@@ -1,5 +1,18 @@
 # DMR Display Mode Investigation
 
+## ⚠️ DOCUMENTATION DISCREPANCY IDENTIFIED (January 21, 2026)
+
+**There is a conflict between this document and `docs/DMR_Display_Modes.md`:**
+
+| Document | Claim |
+|----------|-------|
+| `DMR_Display_Investigation.md` (this file) | `callFormat` does **NOT** control DMR vs DFM display |
+| `DMR_Display_Modes.md` | `callFormat` **DOES** control it (0=DFM, 1/2=DMR) |
+
+**Resolution Required:** Run Test 13 (`tests/test_configs/13_dmr_dfm_display_test.json`) to definitively determine which claim is correct.
+
+---
+
 ## The Problem
 
 When configuring DMR channels, the radio displays either "DMR" or "DFM" on the screen, but we cannot determine which field controls this display.
@@ -77,6 +90,23 @@ Manual testing confirmed that setting callFormat correctly changes the call beha
 
 ## Next Steps for Investigation
 
+### 🔴 ACTION REQUIRED: Run Test 13
+
+**Test Configuration:** `tests/test_configs/13_dmr_dfm_display_test.json`
+**Instructions:** `tests/test_configs/13_Test_Instructions.md`
+
+This test systematically varies `callFormat` values (0, 1, 2, 255) across 10 channels to definitively determine if `callFormat` controls the DMR vs DFM display.
+
+**Test Matrix:**
+| Channel | callFormat | Expected if hypothesis correct |
+|---------|------------|-------------------------------|
+| 0, 4, 7 | 0 | DFM (Private call) |
+| 1, 5, 8 | 1 | DMR (Group call) |
+| 2, 9 | 2 | DMR (All call) |
+| 3 | 255 | Unknown |
+
+### If Test 13 is Inconclusive
+
 1. **USB Serial Analysis Required**
    - Capture UART communication when manually changing DMR ↔ DFM on radio
    - Compare byte-level differences in channel data packets
@@ -95,8 +125,10 @@ Manual testing confirmed that setting callFormat correctly changes the call beha
 
 ## Related Files
 
+- **NEW Test 13**: `tests/test_configs/13_dmr_dfm_display_test.json` - callFormat variation test
+- **Test Instructions**: `tests/test_configs/13_Test_Instructions.md`
+- **Conflicting doc**: `docs/DMR_Display_Modes.md` - claims callFormat controls display
 - Test config: `tests/test_configs/12_dmr_color_code_test.json`
-- Readback files: `radio_readback_260120_*.json`, `radio_readback_260121_0037.json`
 - Writer code: `pmr_171_cps/writers/pmr171_writer.py`
 - UART protocol docs: `docs/Pmr171_Protocol.md`
 
@@ -104,5 +136,10 @@ Manual testing confirmed that setting callFormat correctly changes the call beha
 
 - The current implementation works for all DMR functionality except the display label
 - Users can successfully use DMR features; the "DFM" label is cosmetic
-- UART capture tools will be needed to identify the controlling field
+- **Run Test 13 before pursuing UART capture** - may resolve the issue
 - Consider this a low-priority issue since functionality is correct
+
+## Document History
+
+- **Created**: January 21, 2026
+- **Updated**: January 21, 2026 - Added discrepancy note, Test 13 reference

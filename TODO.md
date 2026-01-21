@@ -162,7 +162,7 @@ This document tracks planned features, enhancements, and known issues for the PM
 
 ## Known Issues / Bugs
 
-### DMR Display Mode Label (Functionality Issue)
+### DMR Display Mode Label (Functionality Issue) - IN PROGRESS
 **Issue**: DMR channels display as "DFM" instead of "DMR" on radio screen, despite correct functionality
 - **Discovered**: January 21, 2026 during DMR programming testing
 - **Location**: Radio display screen - affects visual label only, not actual DMR functionality
@@ -173,19 +173,23 @@ This document tracks planned features, enhancements, and known issues for the PM
 - **Investigation Status**:
   - Tested multiple field combinations: callFormat, chType, callId, etc.
   - Compared 3 readback files from test uploads and manual configuration
-  - Field controlling display mode has **NOT been identified**
-  - Appears to be independent of all currently mapped fields
+  - **NEW**: Created Test 13 configuration to systematically test `callFormat` values
+  - Documentation conflict identified between `DMR_Display_Investigation.md` and `DMR_Display_Modes.md`
+  - **Hypothesis**: `callFormat` controls display (0=DFM private, 1=DMR group, 2=DMR all)
 - **Next Steps**: 
-  - **UART serial analysis required** - Capture communication when manually toggling DMR ↔ DFM
+  - **Run Test 13** - `tests/test_configs/13_dmr_dfm_display_test.json`
+  - Observe which channels display DMR vs DFM based on callFormat values
+  - If all display same, UART serial analysis required
   - Compare byte-level differences in channel data packets
-  - Look for unmapped fields in channel structure
-  - May be global setting rather than per-channel field
 - **Workaround**: None needed - DMR functionality is correct, label is cosmetic
-- **Documentation**: See `docs/DMR_Display_Investigation.md` for complete investigation details
+- **Documentation**: 
+  - `docs/DMR_Display_Investigation.md` - Investigation notes
+  - `docs/DMR_Display_Modes.md` - Conflicting conclusions (needs update)
+  - `tests/test_configs/13_Test_Instructions.md` - New test procedure
 - **Related Files**: 
+  - Test config: `tests/test_configs/13_dmr_dfm_display_test.json` (NEW - callFormat 0/1/2/255 variations)
   - Test config: `tests/test_configs/12_dmr_color_code_test.json`
-  - Readbacks: `radio_readback_260120_*.json`, `radio_readback_260121_0037.json`
-- **Priority**: LOW - Functionality works; requires UART capture tools for resolution
+- **Priority**: LOW - Functionality works; systematic testing in progress
 
 ### Status Bar Border (Visual Issue)
 **Issue**: Status bar lacks a defined border at the top, creating a soft transition that doesn't look professional
@@ -285,6 +289,24 @@ The UART programming protocol has been fully reverse engineered and documented. 
 ---
 
 ## Session History
+
+### January 21, 2026 (Late Morning Session)
+- **Focus**: DMR vs DFM Display Mode Investigation
+- **Accomplishments**:
+  - Analyzed existing sample data and documentation for DMR/DFM configurations
+  - **Identified documentation discrepancy**: `DMR_Display_Investigation.md` and `DMR_Display_Modes.md` make conflicting claims about whether `callFormat` controls the display
+  - Found issues in `examples/Mode_Test.json`: Channel 3 has wrong vfoaMode (3 instead of 9), Channel 9 has wrong chType (0 instead of 1)
+  - Created **Test 13** configuration (`tests/test_configs/13_dmr_dfm_display_test.json`) with systematic `callFormat` variations
+  - Created test instructions (`tests/test_configs/13_Test_Instructions.md`)
+  - Updated both conflicting docs with discrepancy warnings and Test 13 references
+- **Key Files Created**:
+  - `tests/test_configs/13_dmr_dfm_display_test.json` - 10 channels testing callFormat 0/1/2/255
+  - `tests/test_configs/13_Test_Instructions.md` - Complete test procedure
+- **Documentation Updated**:
+  - `docs/DMR_Display_Investigation.md` - Added discrepancy warning and Test 13 action item
+  - `docs/DMR_Display_Modes.md` - Added discrepancy warning and Test 13 reference
+  - `TODO.md` - Updated Known Issues with Test 13 details
+- **🔴 ACTION REQUIRED**: Run Test 13 to resolve the documentation conflict
 
 ### January 20, 2026 (Afternoon Session)
 - **Focus**: TODO cleanup and status review

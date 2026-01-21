@@ -1,8 +1,23 @@
 # DMR Display Modes: DFM vs DMR
 
+## ⚠️ DOCUMENTATION DISCREPANCY IDENTIFIED (January 21, 2026)
+
+**There is a conflict between this document and `docs/DMR_Display_Investigation.md`:**
+
+| Document | Claim |
+|----------|-------|
+| `DMR_Display_Modes.md` (this file) | `callFormat` **DOES** control DMR vs DFM display (0=DFM, 1/2=DMR) |
+| `DMR_Display_Investigation.md` | `callFormat` does **NOT** control the display |
+
+**Resolution Required:** Run Test 13 (`tests/test_configs/13_dmr_dfm_display_test.json`) to definitively determine which claim is correct.
+
+---
+
 ## Discovery Summary
 
 The PMR-171 radio displays DMR channels in two different modes: **DFM** and **DMR**. Both modes use the same underlying digital mode (`chType = 1`, `vfoaMode/vfobMode = 9`), but the radio's display changes based on the `callFormat` field.
+
+**⚠️ NOTE:** This claim is disputed by `DMR_Display_Investigation.md`. Test 13 will resolve this discrepancy.
 
 **Discovery Date:** January 20-21, 2026  
 **Test Configuration:** `tests/test_configs/12_dmr_color_code_test.json`  
@@ -97,7 +112,15 @@ The radio's display of "DFM" vs "DMR" is controlled by `callFormat`, not by a se
 
 ## References
 
+- **NEW Test 13**: `tests/test_configs/13_dmr_dfm_display_test.json` - Systematic callFormat test
+- **Test Instructions**: `tests/test_configs/13_Test_Instructions.md`
+- **Conflicting doc**: `docs/DMR_Display_Investigation.md` - claims callFormat does NOT control display
 - Test Configuration: `tests/test_configs/12_dmr_color_code_test.json`
 - Test Readback: `radio_readback_260120_2331.json`
 - Writer Implementation: `pmr_171_cps/writers/pmr171_writer.py`
 - Test Instructions: `tests/test_configs/12_Test_Instructions.md`
+
+## Document History
+
+- **Created**: January 20, 2026
+- **Updated**: January 21, 2026 - Added discrepancy note, Test 13 reference
