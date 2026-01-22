@@ -107,6 +107,18 @@ This document tracks planned features, enhancements, and known issues for the PM
 
 ## Medium Priority
 
+### UART Protocol Enhancements
+- [ ] **Write acknowledgement payload verification**: Verify ACK packet payload matches sent data
+  - Currently only validates CRC and command byte (0x40 or 0x43)
+  - Should compare echoed payload against original write data
+  - Could detect transmission errors not caught by CRC alone
+  - **Location**: `pmr_171_cps/radio/pmr171_uart.py` - `write_channel()` and `write_dmr_data()` methods
+  - **Implementation options**:
+    1. Byte-by-byte comparison of payload
+    2. Optional read-back verification after write
+    3. Compare critical fields only (channel index, frequency, mode)
+  - **Priority**: LOW - Current implementation works reliably; this is a robustness enhancement
+
 ### Documentation Tasks
 - [x] **UART Reverse Engineering Report**: ✅ COMPLETE (January 19, 2026)
   - Comprehensive technical report documenting the protocol discovery process
@@ -157,7 +169,6 @@ This document tracks planned features, enhancements, and known issues for the PM
     - `channelInZone`: Channel index within zone (0-9, 0-99, etc.)
   - **Not a radio function** - CPS-only feature for organization
   - **Compatibility testing needed**: Test if Guohetec utility ignores unrecognized JSON fields (may strip on load/save)
-- [ ] **Import/Export presets**: Save and load channel configurations
 - [x] **Frequency calculator**: Repeater offset calculator and tone lookup
 - [x] **Automatic frequency formatting**: Format frequency inputs to standard MHz precision (XXX.XXXXXX) with live tree view updates (Jan 2026)
 - [x] **Channel validation**: Warn about out-of-band frequencies, invalid tones (Jan 2026)
@@ -215,41 +226,6 @@ This document tracks planned features, enhancements, and known issues for the PM
 
 ---
 
-## Architecture Notes
-
-### Current Data Model (Jan 2026)
-- **Storage Format**: PMR-171 JSON (direct radio format)
-  - Channels keyed by string ID ("0", "1", "2", etc.)
-  - Each channel has 40+ fields including vfoaFrequency1-4, vfobFrequency1-4, etc.
-  - Frequency stored as big-endian 4-byte integers (Hz)
-  
-- **GUI Data Flow**:
-  - `self.channels` dict holds all channel data
-  - Tree displays sorted view with selectable columns
-  - Detail tabs edit channels in-place
-  - Live updates via StringVar/IntVar traces
-  - Save writes entire `self.channels` back to JSON
-
-- **Design Decision**: Single-frequency sources (CHIRP) duplicate freq to both VFOs A and B for simplex operation. This is the intended behavior, not a limitation.
-
-### Recommended Future Architecture
-```
-Input Formats (CHIRP .img, Anytone .rdt, etc.)
-    ↓
-Internal/Intermediate Format (flexible, human-readable)
-    ↓
-GUI Editor (edit intermediate format)
-    ↓
-Export Formats (PMR-171 JSON, CSV, other radios)
-```
-
-This allows:
-- Single freq sources → intermediate → dual freq export (with user input)
-- Dual freq sources → intermediate → preserve both freqs
-- Format-agnostic editing experience
-
----
-
 ## Implementation Notes
 
 ### What Works Well (Keep This Approach)
@@ -257,7 +233,7 @@ This allows:
 - **Column selection**: Dynamic tree reconfiguration works cleanly
 - **Data binding**: ComboBox changes → `_update_field()` → immediate save
 - **Arrow navigation**: Up/Down for channels, Left/Right for tabs with collapse prevention
-- **Professional styling**: Blue headers, proper fonts, MOTORTRBO/ASTRO 25 aesthetic
+- **Styling**: Blue headers, proper fonts, MOTORTRBO/ASTRO 25 aesthetic
 - **File operations**: Ctrl+O/Ctrl+S with datetime-based defaults
 
 ### Technical Hints

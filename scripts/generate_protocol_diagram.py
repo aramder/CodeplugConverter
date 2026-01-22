@@ -14,45 +14,100 @@ from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
 import os
 
 
+def draw_message_arrow(ax, from_x, to_x, y, label, hex_data, is_request=True, show_box=True):
+    """
+    Draw a message arrow with consistent styling.
+    
+    Args:
+        ax: matplotlib axis
+        from_x: starting x position
+        to_x: ending x position
+        y: y position of arrow
+        label: text label for the message
+        hex_data: hex packet example (or None)
+        is_request: True for computer->radio (blue), False for radio->computer (green)
+        show_box: whether to draw a box around the label
+    
+    Returns:
+        new y position after drawing
+    """
+    # Colors
+    if is_request:
+        arrow_color = '#1976D2'
+        box_color = '#E3F2FD'
+        edge_color = '#1976D2'
+    else:
+        arrow_color = '#388E3C'
+        box_color = '#E8F5E9'
+        edge_color = '#388E3C'
+    
+    # Draw arrow
+    ax.annotate('', xy=(to_x, y), xytext=(from_x, y),
+                arrowprops=dict(arrowstyle='->', color=arrow_color, lw=2))
+    
+    if show_box:
+        # Draw label box - consistent width (4.4 units centered at 5.0)
+        box_width = 4.4
+        box_x = 5.0 - box_width / 2
+        ax.add_patch(FancyBboxPatch((box_x, y - 0.35), box_width, 0.38, 
+                                    boxstyle="round,pad=0.02", 
+                                    facecolor=box_color, edgecolor=edge_color, linewidth=1.5))
+        ax.text(5, y - 0.17, label, ha='center', fontsize=10)
+        y -= 0.45
+    else:
+        # Just text, no box
+        ax.text(5, y + 0.15, label, ha='center', fontsize=10, style='italic')
+        y -= 0.35
+    
+    # Draw hex data if provided
+    if hex_data:
+        ax.text(5, y, hex_data, ha='center', fontsize=9, family='monospace', color='#555')
+        y -= 0.35
+    
+    return y
+
+
 def create_sequence_diagram():
     """Create a sequence diagram showing read/write protocol flow."""
     
-    fig, ax = plt.subplots(1, 1, figsize=(14, 16))
+    fig, ax = plt.subplots(1, 1, figsize=(14, 13))
     ax.set_xlim(0, 10)
-    ax.set_ylim(0, 16)
+    ax.set_ylim(0.5, 13.5)
     ax.axis('off')
     
     # Title
-    ax.text(5, 15.5, 'PMR-171 UART Protocol Sequence', 
+    ax.text(5, 13.2, 'PMR-171 UART Protocol Sequence', 
             ha='center', va='center', fontsize=20, fontweight='bold')
+    ax.text(5, 12.8, '(Analog Channels - DMR channels use slightly different payload structure)', 
+            ha='center', va='center', fontsize=10, style='italic', color='#666')
     
     # Lifelines
     computer_x = 2.5
     radio_x = 7.5
     
-    # Actor boxes
-    ax.add_patch(FancyBboxPatch((computer_x - 1.0, 14.4), 2.0, 0.8, 
+    # Actor boxes - positioned below subtitle with more space
+    ax.add_patch(FancyBboxPatch((computer_x - 1.0, 11.7), 2.0, 0.7, 
                                 boxstyle="round,pad=0.05", 
                                 facecolor='#E3F2FD', edgecolor='#1976D2', linewidth=2))
-    ax.text(computer_x, 14.8, 'Computer', ha='center', va='center', fontsize=14, fontweight='bold')
+    ax.text(computer_x, 12.05, 'Computer', ha='center', va='center', fontsize=14, fontweight='bold')
     
-    ax.add_patch(FancyBboxPatch((radio_x - 1.0, 14.4), 2.0, 0.8, 
+    ax.add_patch(FancyBboxPatch((radio_x - 1.0, 11.7), 2.0, 0.7, 
                                 boxstyle="round,pad=0.05", 
                                 facecolor='#E8F5E9', edgecolor='#388E3C', linewidth=2))
-    ax.text(radio_x, 14.8, 'PMR-171', ha='center', va='center', fontsize=14, fontweight='bold')
+    ax.text(radio_x, 12.05, 'PMR-171', ha='center', va='center', fontsize=14, fontweight='bold')
     
-    # Lifelines (dashed vertical lines)
-    ax.plot([computer_x, computer_x], [14.5, 0.5], 'k--', linewidth=1, alpha=0.5)
-    ax.plot([radio_x, radio_x], [14.5, 0.5], 'k--', linewidth=1, alpha=0.5)
+    # Lifelines (dashed vertical lines) - start below actor boxes, end below content
+    ax.plot([computer_x, computer_x], [11.65, 0.8], 'k--', linewidth=1, alpha=0.5)
+    ax.plot([radio_x, radio_x], [11.65, 0.8], 'k--', linewidth=1, alpha=0.5)
     
-    y = 14.0
+    y = 11.3
     
     # === INITIALIZATION PHASE ===
     y -= 0.3
     ax.text(0.3, y, 'INITIALIZATION', fontsize=13, fontweight='bold', color='#1565C0')
     
     y -= 0.6
-    # DTR/RTS Setup
+    # DTR/RTS Setup (no box, just text above arrow)
     ax.annotate('', xy=(radio_x - 0.1, y), xytext=(computer_x + 0.1, y),
                 arrowprops=dict(arrowstyle='->', color='#1976D2', lw=2))
     ax.text(5, y + 0.18, 'Set DTR=HIGH, RTS=HIGH', ha='center', fontsize=11, style='italic')
@@ -60,98 +115,70 @@ def create_sequence_diagram():
     y -= 0.5
     ax.text(5, y, '(Radio enters programming mode)', ha='center', fontsize=10, color='gray')
     
-    y -= 0.4
-    # Optional: Equipment Type Query
-    ax.annotate('', xy=(radio_x - 0.1, y), xytext=(computer_x + 0.1, y),
-                arrowprops=dict(arrowstyle='->', color='#1976D2', lw=2))
-    ax.add_patch(FancyBboxPatch((3.0, y - 0.22), 4.0, 0.42, 
-                                boxstyle="round,pad=0.02", 
-                                facecolor='#E3F2FD', edgecolor='#1976D2', linewidth=1.5))
-    ax.text(5, y - 0.02, 'CMD 0x27: Equipment Type', ha='center', fontsize=10)
+    y -= 0.5
+    # Equipment Type Query - no box for initialization commands
+    y = draw_message_arrow(ax, computer_x + 0.1, radio_x - 0.1, y, 
+                           'CMD 0x27: Equipment Type', None, is_request=True, show_box=False)
     
-    y -= 0.55
-    ax.annotate('', xy=(computer_x + 0.1, y), xytext=(radio_x - 0.1, y),
-                arrowprops=dict(arrowstyle='->', color='#388E3C', lw=2))
-    ax.add_patch(FancyBboxPatch((3.3, y - 0.22), 3.4, 0.42, 
-                                boxstyle="round,pad=0.02", 
-                                facecolor='#E8F5E9', edgecolor='#388E3C', linewidth=1.5))
-    ax.text(5, y - 0.02, 'Response: Model/FW', ha='center', fontsize=10)
+    # Equipment Type Response - no box for initialization commands
+    y = draw_message_arrow(ax, radio_x - 0.1, computer_x + 0.1, y, 
+                           'Response: Model/FW', None, is_request=False, show_box=False)
+    
+    y -= 0.4
+    
+    # === READ OPERATION ===
+    read_box_top = y
+    ax.text(0.5, y - 0.1, 'READ CHANNEL LOOP (repeat for each channel)', fontsize=12, fontweight='bold', color='#E65100')
+    
+    y -= 0.7
+    # Read Request
+    y = draw_message_arrow(ax, computer_x + 0.1, radio_x - 0.1, y, 
+                           'CMD 0x41: Read Channel N', 
+                           '[A5 A5 A5 A5] [05] [41] [00 0N] [CRC]', is_request=True)
+    
+    y -= 0.1
+    # Read Response
+    y = draw_message_arrow(ax, radio_x - 0.1, computer_x + 0.1, y, 
+                           'Response: 26-byte Channel Data', 
+                           '[A5 A5 A5 A5] [1D] [41] [26 bytes] [CRC]', is_request=False)
+    
+    y -= 0.25
+    ax.text(5, y, '↺ repeat', ha='center', fontsize=11, style='italic', color='#E65100')
+    
+    read_box_bottom = y - 0.3
+    # Draw read loop box
+    ax.add_patch(FancyBboxPatch((0.2, read_box_bottom), 9.6, read_box_top - read_box_bottom, 
+                                boxstyle="round,pad=0.1", 
+                                facecolor='#FFF8E1', edgecolor='#FFA000', linewidth=2, linestyle='--'))
     
     y -= 0.7
     
-    # === READ OPERATION ===
-    ax.add_patch(FancyBboxPatch((0.2, y - 3.8), 9.6, 4.1, 
-                                boxstyle="round,pad=0.1", 
-                                facecolor='#FFF8E1', edgecolor='#FFA000', linewidth=2, linestyle='--'))
-    ax.text(0.5, y - 0.1, 'READ CHANNEL LOOP (repeat for each channel)', fontsize=12, fontweight='bold', color='#E65100')
-    
-    y -= 0.75
-    # Read Request
-    ax.annotate('', xy=(radio_x - 0.1, y), xytext=(computer_x + 0.1, y),
-                arrowprops=dict(arrowstyle='->', color='#1976D2', lw=2))
-    ax.add_patch(FancyBboxPatch((2.6, y - 0.22), 4.8, 0.42, 
-                                boxstyle="round,pad=0.02", 
-                                facecolor='#E3F2FD', edgecolor='#1976D2', linewidth=1.5))
-    ax.text(5, y - 0.02, 'CMD 0x41: Read Channel N', ha='center', fontsize=10)
-    
-    y -= 0.4
-    ax.text(computer_x + 0.3, y, '[A5 A5 A5 A5] [05] [41] [00 0N] [CRC]', 
-            fontsize=9, family='monospace', color='#555')
-    
-    y -= 0.55
-    # Read Response
-    ax.annotate('', xy=(computer_x + 0.1, y), xytext=(radio_x - 0.1, y),
-                arrowprops=dict(arrowstyle='->', color='#388E3C', lw=2))
-    ax.add_patch(FancyBboxPatch((2.2, y - 0.22), 5.6, 0.42, 
-                                boxstyle="round,pad=0.02", 
-                                facecolor='#E8F5E9', edgecolor='#388E3C', linewidth=1.5))
-    ax.text(5, y - 0.02, 'Response: 26-byte Channel Data', ha='center', fontsize=10)
-    
-    y -= 0.4
-    ax.text(radio_x - 0.3, y, '[A5 A5 A5 A5] [1D] [41] [26 bytes] [CRC]', 
-            fontsize=9, family='monospace', color='#555', ha='right')
-    
-    y -= 0.65
-    ax.text(5, y, '↺ Repeat for channels 0-999', ha='center', fontsize=11, style='italic', color='#E65100')
-    
-    y -= 1.0
-    
     # === WRITE OPERATION ===
-    ax.add_patch(FancyBboxPatch((0.2, y - 3.8), 9.6, 4.1, 
-                                boxstyle="round,pad=0.1", 
-                                facecolor='#E8EAF6', edgecolor='#3F51B5', linewidth=2, linestyle='--'))
+    write_box_top = y
     ax.text(0.5, y - 0.1, 'WRITE CHANNEL LOOP (repeat for each channel)', fontsize=12, fontweight='bold', color='#283593')
     
-    y -= 0.75
+    y -= 0.7
     # Write Request
-    ax.annotate('', xy=(radio_x - 0.1, y), xytext=(computer_x + 0.1, y),
-                arrowprops=dict(arrowstyle='->', color='#1976D2', lw=2))
-    ax.add_patch(FancyBboxPatch((2.1, y - 0.22), 5.8, 0.42, 
-                                boxstyle="round,pad=0.02", 
-                                facecolor='#E3F2FD', edgecolor='#1976D2', linewidth=1.5))
-    ax.text(5, y - 0.02, 'CMD 0x40: Write Channel N (26 bytes)', ha='center', fontsize=10)
+    y = draw_message_arrow(ax, computer_x + 0.1, radio_x - 0.1, y, 
+                           'CMD 0x40: Write Channel N (26 bytes)', 
+                           '[A5 A5 A5 A5] [1D] [40] [26 bytes] [CRC]', is_request=True)
     
-    y -= 0.4
-    ax.text(computer_x + 0.3, y, '[A5 A5 A5 A5] [1D] [40] [26 bytes] [CRC]', 
-            fontsize=9, family='monospace', color='#555')
-    
-    y -= 0.55
+    y -= 0.1
     # Write Response
-    ax.annotate('', xy=(computer_x + 0.1, y), xytext=(radio_x - 0.1, y),
-                arrowprops=dict(arrowstyle='->', color='#388E3C', lw=2))
-    ax.add_patch(FancyBboxPatch((2.7, y - 0.22), 4.6, 0.42, 
-                                boxstyle="round,pad=0.02", 
-                                facecolor='#E8F5E9', edgecolor='#388E3C', linewidth=1.5))
-    ax.text(5, y - 0.02, 'ACK: Echo of written data', ha='center', fontsize=10)
+    y = draw_message_arrow(ax, radio_x - 0.1, computer_x + 0.1, y, 
+                           'ACK: Echo of written data', 
+                           '[A5 A5 A5 A5] [1D] [40] [26 bytes] [CRC]', is_request=False)
     
-    y -= 0.4
-    ax.text(radio_x - 0.3, y, '[A5 A5 A5 A5] [1D] [40] [26 bytes] [CRC]', 
-            fontsize=9, family='monospace', color='#555', ha='right')
+    y -= 0.25
+    ax.text(5, y, '↺ repeat', ha='center', fontsize=11, style='italic', color='#283593')
     
-    y -= 0.65
-    ax.text(5, y, '↺ Repeat for modified channels', ha='center', fontsize=11, style='italic', color='#283593')
+    write_box_bottom = y - 0.3
+    # Draw write loop box
+    ax.add_patch(FancyBboxPatch((0.2, write_box_bottom), 9.6, write_box_top - write_box_bottom, 
+                                boxstyle="round,pad=0.1", 
+                                facecolor='#E8EAF6', edgecolor='#3F51B5', linewidth=2, linestyle='--'))
     
-    y -= 1.0
+    y -= 0.7
     
     # === CLOSE ===
     ax.text(0.3, y, 'DISCONNECT', fontsize=13, fontweight='bold', color='#1565C0')
@@ -161,20 +188,8 @@ def create_sequence_diagram():
                 arrowprops=dict(arrowstyle='->', color='#1976D2', lw=2))
     ax.text(5, y + 0.18, 'Set DTR=LOW, RTS=LOW, Close Port', ha='center', fontsize=11, style='italic')
     
-    y -= 0.45
+    y -= 0.4
     ax.text(5, y, '(Radio exits programming mode)', ha='center', fontsize=10, color='gray')
-    
-    # Legend
-    y = 0.35
-    ax.add_patch(FancyBboxPatch((0.3, y - 0.12), 2.6, 0.42, 
-                                boxstyle="round,pad=0.02", 
-                                facecolor='#E3F2FD', edgecolor='#1976D2', linewidth=1.5))
-    ax.text(1.6, y + 0.08, 'Computer → Radio', ha='center', fontsize=10)
-    
-    ax.add_patch(FancyBboxPatch((3.2, y - 0.12), 2.6, 0.42, 
-                                boxstyle="round,pad=0.02", 
-                                facecolor='#E8F5E9', edgecolor='#388E3C', linewidth=1.5))
-    ax.text(4.5, y + 0.08, 'Radio → Computer', ha='center', fontsize=10)
     
     plt.tight_layout()
     return fig
