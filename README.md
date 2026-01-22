@@ -203,6 +203,8 @@ PMR_171_CPS/
 | [UART Testing](docs/UART_Testing.md) | Hardware test procedures and results |
 | [CTCSS Mapping](docs/Complete_Ctcss_Mapping.md) | Complete tone → yayin value table |
 | [PMR-171 Protocol](docs/Pmr171_Protocol.md) | Protocol specification and field definitions |
+| [Command Investigation](docs/Command_Investigation_Guide.md) | Investigation framework for unknown commands |
+| [⚠️ CRITICAL: Crash Analysis](docs/CRITICAL_Command_Crash_Analysis.md) | **Radio stability issues with commands 0x2D/0x2E** |
 | [TODO](TODO.md) | Development roadmap and session history |
 
 ---
@@ -217,6 +219,7 @@ PMR_171_CPS/
 3. **Non-Linear Tone Encoding**: CTCSS tones use proprietary yayin values (1-55 with gaps)
 4. **Dual VFO Architecture**: Each channel has VFO A (RX) and VFO B (TX) frequencies
 5. **Mode 9 = DMR**: Added in firmware update, not in original documentation
+6. ⚠️ **Commands 0x2D/0x2E Unstable**: Status polling commands crash radio with rapid requests. Use stable alternatives (0x41, 0x44, 0x39). See [crash analysis](docs/CRITICAL_Command_Crash_Analysis.md).
 
 ### Packet Structure
 
